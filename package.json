@@ -1,5 +1,5 @@
 {
-  "name": "office365",
+  "name": "netrich-office365-cp",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,6 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.20.0",
+    "@azure/msal-react": "^5.7.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "lucide-react": "^1.39.0",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"
