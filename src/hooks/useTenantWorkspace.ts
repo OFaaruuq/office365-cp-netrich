@@ -29,6 +29,18 @@ export type TenantWorkspaceState = {
     secureScore: number;
     lastAssessedAt: string;
   };
+  solutions?: {
+    collaboration: {
+      teamsActiveUsers: number;
+      sharePointSites: number;
+      meetings30d: number;
+    };
+    emailData: {
+      mailboxes: number;
+      oneDriveGB: number;
+      sharePointGB: number;
+    };
+  };
 };
 
 type State = {

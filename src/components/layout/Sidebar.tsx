@@ -18,10 +18,11 @@ import {
   Building2,
   Headphones,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { useSession } from "@/components/auth/SessionProvider";
 import { useNav } from "@/components/layout/NavProvider";
+import { portalFetch } from "@/lib/admin-api";
 
 function NavLink({
   href,
@@ -50,6 +51,18 @@ function NavLink({
   );
 }
 
+const ALL_CATALOGS = [
+  { id: "microsoft-365", href: "/catalog/microsoft-365", label: "Microsoft 365", icon: Cloud },
+  { id: "dynamics-365", href: "/catalog/dynamics-365", label: "Dynamics 365", icon: Box },
+  {
+    id: "server-software",
+    href: "/catalog/server-software",
+    label: "Server Software",
+    icon: Server,
+  },
+  { id: "azure", href: "/catalog/azure", label: "Microsoft Azure", icon: Cloud },
+] as const;
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { isPartner, isSupport, isClient, user } = useSession();
@@ -57,13 +70,33 @@ export default function Sidebar() {
   const [catalogsOpen, setCatalogsOpen] = useState(true);
   const [solutionsOpen, setSolutionsOpen] = useState(true);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [allowedCatalogs, setAllowedCatalogs] = useState<string[] | null>(null);
 
-  const catalogs = [
-    { href: "/catalog/microsoft-365", label: "Microsoft 365", icon: Cloud },
-    { href: "/catalog/dynamics-365", label: "Dynamics 365", icon: Box },
-    { href: "/catalog/server-software", label: "Server Software", icon: Server },
-    { href: "/catalog/azure", label: "Microsoft Azure", icon: Cloud },
-  ];
+  useEffect(() => {
+    if (!isClient || !user?.customerId) {
+      setAllowedCatalogs(null);
+      return;
+    }
+    let cancelled = false;
+    void portalFetch("/api/me/tenant")
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        setAllowedCatalogs(data.tenant?.allowedCatalogs || ["microsoft-365"]);
+      })
+      .catch(() => {
+        if (!cancelled) setAllowedCatalogs(["microsoft-365"]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isClient, user?.customerId]);
+
+  const catalogs = useMemo(() => {
+    if (isPartner || !isClient) return [...ALL_CATALOGS];
+    const allowed = allowedCatalogs || ["microsoft-365"];
+    return ALL_CATALOGS.filter((c) => allowed.includes(c.id));
+  }, [isPartner, isClient, allowedCatalogs]);
 
   const solutions = [
     { href: "/solutions/collaboration", label: "Collaboration Tools", icon: MessageSquare },
@@ -166,7 +199,13 @@ export default function Sidebar() {
                 </button>
                 {catalogsOpen &&
                   catalogs.map((link) => (
-                    <NavLink key={link.href} {...link} active={pathname === link.href} />
+                    <NavLink
+                      key={link.href}
+                      href={link.href}
+                      label={link.label}
+                      icon={link.icon}
+                      active={pathname === link.href}
+                    />
                   ))}
               </div>
 

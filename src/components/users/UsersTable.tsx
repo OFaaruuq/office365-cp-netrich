@@ -93,11 +93,16 @@ export default function UsersTable({
     setSyncing(true);
     setSyncMessage(null);
     try {
-      const res = await portalFetch("/api/users/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(customerId ? { customerId } : {}),
-      });
+      const res = await portalFetch(
+        customerId
+          ? `/api/users/sync?customerId=${encodeURIComponent(customerId)}`
+          : "/api/users/sync",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(customerId ? { customerId } : {}),
+        }
+      );
       const data = await res.json();
       if (data.users) {
         setUsers(data.users);

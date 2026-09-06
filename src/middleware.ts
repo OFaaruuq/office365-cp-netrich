@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, decodeSessionToken } from "@/lib/auth/server-session";
 
-const PUBLIC_PATHS = new Set(["/", "/api/auth/session"]);
+const PUBLIC_PATHS = new Set(["/", "/api/auth/session", "/api/auth/personas"]);
 
 function isPublic(pathname: string) {
   if (PUBLIC_PATHS.has(pathname)) return true;

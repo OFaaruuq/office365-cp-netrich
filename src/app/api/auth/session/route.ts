@@ -10,13 +10,17 @@ import {
 import { assertClientPortalActive } from "@/lib/auth/guards";
 import { writeAudit } from "@/lib/audit-log";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { isDemoLoginAllowed } from "@/lib/auth/demo-mode";
 
 export async function GET(request: NextRequest) {
   const session = await readSessionFromRequest(request);
   if (!session) {
-    return NextResponse.json({ authenticated: false, user: null });
+    return NextResponse.json({
+      authenticated: false,
+      user: null,
+      demoLogin: isDemoLoginAllowed(),
+    });
   }
-  // Revoke stale client sessions if Super Admin suspended the tenant
   const locked = assertClientPortalActive(session);
   if (locked) {
     return locked;
@@ -24,10 +28,22 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     authenticated: true,
     user: toClientSession(session),
+    demoLogin: isDemoLoginAllowed(),
   });
 }
 
 export async function POST(request: NextRequest) {
+  if (!isDemoLoginAllowed()) {
+    return NextResponse.json(
+      {
+        error:
+          "Passwordless demo login is disabled. Configure Microsoft Entra ID (MSAL) or set ALLOW_DEMO_LOGIN=true for staging demos.",
+        code: "DEMO_LOGIN_DISABLED",
+      },
+      { status: 403 }
+    );
+  }
+
   const ip = clientIp(request);
   const limited = rateLimit(`login:${ip}`, 20, 60_000);
   if (!limited.ok) {
@@ -111,7 +127,7 @@ export async function POST(request: NextRequest) {
     actorEmail: account.email,
     actorRole: account.role,
     customerId: account.customerId,
-    detail: "Signed in",
+    detail: "Signed in (demo)",
     meta: { ip },
   });
 

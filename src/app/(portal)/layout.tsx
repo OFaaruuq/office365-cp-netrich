@@ -15,12 +15,18 @@ export default function PortalLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, ready } = useSession();
+  const { user, ready, refreshSession } = useSession();
   const router = useRouter();
 
   useEffect(() => {
     if (ready && !user) router.replace("/");
   }, [ready, user, router]);
+
+  // Extra suspend check when entering any portal route
+  useEffect(() => {
+    if (!ready || !user) return;
+    void refreshSession();
+  }, [ready, user?.accountId, refreshSession]);
 
   if (!ready || !user) {
     return (

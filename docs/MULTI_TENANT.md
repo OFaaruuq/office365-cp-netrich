@@ -52,7 +52,7 @@ Each client tenant is a separate security boundary:
 
 Cross-tenant API calls return **`403`** with `code: TENANT_ISOLATION` (or `PORTAL_LOCKED` / `TEAM_ISOLATION` / `THREAD_OWNERSHIP`).
 
-Set **`PORTAL_SESSION_SECRET`** in production.
+Set **`PORTAL_SESSION_SECRET`** (≥32 chars) in production. Passwordless demo login is **dev-only** unless `ALLOW_DEMO_LOGIN=true`.
 
 ## Try it
 

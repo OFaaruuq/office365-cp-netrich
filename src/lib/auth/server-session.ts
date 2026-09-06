@@ -1,16 +1,20 @@
 import type { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import type { PortalRole, SessionUser, SupportTeam } from "@/lib/tenancy-types";
+import { requireHardenedSessionSecret } from "@/lib/auth/demo-mode";
 
 export const SESSION_COOKIE = "nt_portal_session";
+/** Client sessions expire faster so suspend/reject converges sooner */
 const MAX_AGE_SEC = 60 * 60 * 12; // 12 hours
+const CLIENT_MAX_AGE_SEC = 60 * 30; // 30 minutes for customer_admin
 
 function secret(): string {
-  return (
-    process.env.PORTAL_SESSION_SECRET ||
-    process.env.SESSION_SECRET ||
-    "netrich-office365-dev-session-secret-change-me"
-  );
+  const configured = process.env.PORTAL_SESSION_SECRET || process.env.SESSION_SECRET;
+  if (configured && configured.length >= 16) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("PORTAL_SESSION_SECRET is required in production");
+  }
+  return "netrich-office365-dev-session-secret-change-me";
 }
 
 export type ServerSession = {
@@ -80,11 +84,13 @@ function timingSafeEqualStr(a: string, b: string): boolean {
 export async function encodeSessionToken(
   session: Omit<ServerSession, "iat" | "exp">
 ): Promise<string> {
+  requireHardenedSessionSecret();
   const now = Math.floor(Date.now() / 1000);
+  const ttl = session.role === "customer_admin" ? CLIENT_MAX_AGE_SEC : MAX_AGE_SEC;
   const full: ServerSession = {
     ...session,
     iat: now,
-    exp: now + MAX_AGE_SEC,
+    exp: now + ttl,
   };
   const payloadB64 = b64urlFromString(JSON.stringify(full));
   const sig = await hmacSign(payloadB64);
@@ -126,7 +132,8 @@ export async function applySessionCookie(
   session: Omit<ServerSession, "iat" | "exp">
 ) {
   const token = await encodeSessionToken(session);
-  res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
+  const maxAge = session.role === "customer_admin" ? CLIENT_MAX_AGE_SEC : MAX_AGE_SEC;
+  res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(maxAge));
   return res;
 }
 

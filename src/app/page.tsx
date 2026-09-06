@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import BrandLogo from "@/components/layout/BrandLogo";
 import { useSession } from "@/components/auth/SessionProvider";
 import { roleHomePath, roleLabel } from "@/lib/tenancy-types";
@@ -9,10 +9,16 @@ import clsx from "clsx";
 
 export default function SignInPage() {
   const router = useRouter();
-  const { accounts, signIn } = useSession();
-  const [selected, setSelected] = useState(accounts[5]?.id || accounts[0]?.id);
+  const { accounts, signIn, demoLogin } = useSession();
+  const [selected, setSelected] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selected && accounts.length) {
+      setSelected(accounts.find((a) => a.role === "customer_admin")?.id || accounts[0]?.id);
+    }
+  }, [accounts, selected]);
 
   async function handleSignIn() {
     if (!selected) return;
@@ -75,6 +81,13 @@ export default function SignInPage() {
           {error && (
             <div className="mt-4 rounded-xl border border-nt-danger/30 bg-nt-danger-soft px-4 py-3 text-sm text-nt-danger">
               {error}
+            </div>
+          )}
+
+          {!demoLogin && (
+            <div className="mt-4 rounded-xl border border-nt-warning/30 bg-nt-warning-soft px-4 py-3 text-sm text-nt-warning">
+              Demo passwordless login is disabled. Configure Microsoft Entra ID or set{" "}
+              <code className="text-xs">ALLOW_DEMO_LOGIN=true</code> for staging.
             </div>
           )}
 

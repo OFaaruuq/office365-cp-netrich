@@ -31,6 +31,19 @@ export type TenantWorkspace = {
     secureScore: number;
     lastAssessedAt: string;
   };
+  /** Isolated solution-path adoption for this tenant only */
+  solutions: {
+    collaboration: {
+      teamsActiveUsers: number;
+      sharePointSites: number;
+      meetings30d: number;
+    };
+    emailData: {
+      mailboxes: number;
+      oneDriveGB: number;
+      sharePointGB: number;
+    };
+  };
 };
 
 function remapEmail(email: string, domain: string): string {
@@ -102,6 +115,19 @@ export function getTenantWorkspace(customerId: string): TenantWorkspace | null {
     lastAssessedAt: customer.lastSyncAt || new Date().toISOString(),
   };
 
+  const solutions = {
+    collaboration: {
+      teamsActiveUsers: Math.max(1, Math.round(active * 0.85)),
+      sharePointSites: Math.max(1, Math.round(3 + (hash % 12) * scale)),
+      meetings30d: Math.max(0, Math.round(20 + (hash % 80) * scale)),
+    },
+    emailData: {
+      mailboxes: Math.max(1, active + blocked),
+      oneDriveGB: Math.max(10, Math.round(customer.usersCount * 12 * scale) || 48),
+      sharePointGB: Math.max(5, Math.round(40 + (hash % 200) * scale)),
+    },
+  };
+
   return {
     customerId,
     domain,
@@ -126,6 +152,7 @@ export function getTenantWorkspace(customerId: string): TenantWorkspace | null {
     })),
     allowedCatalogs: customer.config?.allowedCatalogs || ["microsoft-365"],
     securityPosture,
+    solutions,
   };
 }
 
