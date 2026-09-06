@@ -9,17 +9,28 @@ export type AuditAction =
   | "auth.login"
   | "auth.login_denied"
   | "auth.logout"
+  | "auth.mfa_challenge"
+  | "auth.mfa_enroll"
+  | "auth.mfa_verify"
+  | "auth.mfa_failed"
+  | "auth.mfa_reset"
+  | "users.create"
+  | "users.update"
+  | "users.delete"
+  | "users.password_change"
   | "tenant.inspect"
   | "tenant.create"
   | "tenant.configure"
   | "tenant.approve"
   | "tenant.reject"
   | "tenant.suspend"
+  | "tenant.delete"
   | "tenant.workspace_read"
   | "support.claim"
   | "support.resolve"
   | "support.create"
   | "users.sync"
+  | "commerce.subscribe"
   | "portal.locked_out";
 
 export type AuditEntry = {
@@ -32,6 +43,16 @@ export type AuditEntry = {
   customerId?: string;
   detail?: string;
   meta?: Record<string, string | number | boolean | null>;
+  /** Compliance-grade optional fields */
+  requestId?: string;
+  correlationId?: string;
+  sessionId?: string;
+  actorType?: "user" | "worker" | "service_principal" | "integration" | "system";
+  sourceIp?: string;
+  userAgent?: string;
+  riskLevel?: "low" | "medium" | "high" | "critical";
+  approvalId?: string;
+  result?: string;
 };
 
 function load(): AuditEntry[] {
@@ -65,6 +86,15 @@ export function writeAudit(
     customerId: entry.customerId,
     detail: entry.detail,
     meta: entry.meta,
+    requestId: entry.requestId,
+    correlationId: entry.correlationId,
+    sessionId: entry.sessionId,
+    actorType: entry.actorType || "user",
+    sourceIp: entry.sourceIp,
+    userAgent: entry.userAgent,
+    riskLevel: entry.riskLevel || "low",
+    approvalId: entry.approvalId,
+    result: entry.result || "ok",
   };
   const all = load();
   all.unshift(full);

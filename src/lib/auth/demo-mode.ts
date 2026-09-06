@@ -1,10 +1,19 @@
 /**
- * Demo passwordless login is for local/dev only unless explicitly enabled.
+ * Demo credential login is for local/dev only unless explicitly enabled.
  * Production must set PORTAL_SESSION_SECRET and use Entra (or ALLOW_DEMO_LOGIN=true for staging demos).
  */
 export function isDemoLoginAllowed(): boolean {
   if (process.env.ALLOW_DEMO_LOGIN === "true") return true;
   return process.env.NODE_ENV !== "production";
+}
+
+/** Shared demo password — never list accounts on the public login page. */
+export function getDemoPassword(): string {
+  return process.env.DEMO_LOGIN_PASSWORD || "demo";
+}
+
+export function verifyDemoPassword(password: string): boolean {
+  return Boolean(password) && password === getDemoPassword();
 }
 
 export function hasHardenedSessionSecret(): boolean {

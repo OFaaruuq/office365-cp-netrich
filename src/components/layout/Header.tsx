@@ -8,13 +8,19 @@ import { useChat } from "@/components/chat/ChatProvider";
 import BrandLogo from "@/components/layout/BrandLogo";
 import { useNav } from "@/components/layout/NavProvider";
 import { useSession } from "@/components/auth/SessionProvider";
+import { portalFetch } from "@/lib/admin-api";
 
 export default function Header() {
   const router = useRouter();
   const [supportOpen, setSupportOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<
+    Array<{ id: string; title: string; message: string; actionUrl?: string; readAt?: string }>
+  >([]);
   const supportRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
   const { openChat, unreadCount, startClientChat } = useChat();
   const { mobileOpen, toggleMobile } = useNav();
   const { user, signOut, isClient, isSupport, isPartner, homePath } = useSession();
@@ -24,10 +30,21 @@ export default function Header() {
       const t = e.target as Node;
       if (supportRef.current && !supportRef.current.contains(t)) setSupportOpen(false);
       if (profileRef.current && !profileRef.current.contains(t)) setProfileOpen(false);
+      if (notifRef.current && !notifRef.current.contains(t)) setNotifOpen(false);
     }
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    void portalFetch("/api/csp/notifications")
+      .then((r) => r.json())
+      .then((d) => setNotifications(d.notifications || []))
+      .catch(() => undefined);
+  }, [user]);
+
+  const unreadNotifs = notifications.filter((n) => !n.readAt).length;
 
   function handleLiveChat() {
     setSupportOpen(false);
@@ -55,16 +72,55 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-0.5 text-sm sm:gap-1">
-          <button
-            type="button"
-            className="relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-nt-text-muted transition hover:bg-nt-surface-muted hover:text-nt-text sm:px-3"
-          >
-            <Bell size={16} strokeWidth={1.75} />
-            <span className="hidden md:inline">Notifications</span>
-            {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-nt-danger ring-2 ring-white" />
+          <div className="relative" ref={notifRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setNotifOpen((v) => !v);
+                setSupportOpen(false);
+                setProfileOpen(false);
+              }}
+              className="relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-nt-text-muted transition hover:bg-nt-surface-muted hover:text-nt-text sm:px-3"
+            >
+              <Bell size={16} strokeWidth={1.75} />
+              <span className="hidden md:inline">Notifications</span>
+              {unreadNotifs > 0 && (
+                <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-nt-danger ring-2 ring-white" />
+              )}
+            </button>
+            {notifOpen && (
+              <div className="absolute right-0 top-full z-50 mt-2 max-h-96 w-96 overflow-y-auto rounded-xl border border-nt-border bg-white py-2 shadow-[var(--shadow-lg)]">
+                <div className="flex items-center justify-between border-b border-nt-border px-4 py-2">
+                  <div className="text-xs font-semibold">Notifications</div>
+                  <Link
+                    href="/workspace/notifications"
+                    className="text-[11px] font-semibold text-nt-purple"
+                    onClick={() => setNotifOpen(false)}
+                  >
+                    View all
+                  </Link>
+                </div>
+                {notifications.slice(0, 8).map((n) => (
+                  <div key={n.id} className="border-b border-nt-border/40 px-4 py-2.5 last:border-0">
+                    <div className="text-sm font-medium text-nt-text">{n.title}</div>
+                    <div className="text-xs text-nt-text-muted">{n.message}</div>
+                    {n.actionUrl && (
+                      <Link
+                        href={n.actionUrl}
+                        className="nt-link text-[11px]"
+                        onClick={() => setNotifOpen(false)}
+                      >
+                        Open
+                      </Link>
+                    )}
+                  </div>
+                ))}
+                {notifications.length === 0 && (
+                  <div className="px-4 py-6 text-center text-xs text-nt-text-muted">No notifications</div>
+                )}
+              </div>
             )}
-          </button>
+          </div>
 
           <div className="relative" ref={supportRef}>
             <button
@@ -72,6 +128,7 @@ export default function Header() {
               onClick={() => {
                 setSupportOpen(!supportOpen);
                 setProfileOpen(false);
+                setNotifOpen(false);
               }}
               className={`flex items-center gap-1.5 rounded-lg px-2.5 py-2 transition sm:px-3 ${
                 supportOpen
@@ -148,6 +205,7 @@ export default function Header() {
               onClick={() => {
                 setProfileOpen(!profileOpen);
                 setSupportOpen(false);
+                setNotifOpen(false);
               }}
               className="flex max-w-[260px] items-center gap-2 rounded-lg px-2 py-1.5 text-nt-text-muted transition hover:bg-nt-surface-muted"
             >
@@ -172,12 +230,18 @@ export default function Header() {
                     <div className="mt-1 text-xs text-nt-purple">{user.customerName}</div>
                   )}
                 </div>
+                <Link
+                  href="/workspace/sessions"
+                  className="block px-4 py-2.5 text-sm transition hover:bg-nt-surface-muted"
+                  onClick={() => setProfileOpen(false)}
+                >
+                  Active sessions
+                </Link>
                 <button
                   type="button"
                   onClick={() => {
-                    signOut();
+                    void signOut();
                     window.location.href = "/";
-                    router.push("/");
                   }}
                   className="block w-full px-4 py-2.5 text-left text-sm transition hover:bg-nt-danger-soft hover:text-nt-danger"
                 >

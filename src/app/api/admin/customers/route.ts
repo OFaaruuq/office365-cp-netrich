@@ -1,14 +1,34 @@
-import { NextRequest, NextResponse } from "next/server";
-import { DEFAULT_TENANT_CONFIG } from "@/lib/tenancy-data";
-import type { ClientTenant, ClientTenantConfig, CustomerStatus } from "@/lib/tenancy-types";
 import {
+  deleteClientAdminsForCustomer,
+  upsertClientAdminAccount,
+} from "@/lib/account-store";
+import {
+  deleteCustomer,
   findCustomer,
   loadCustomers,
   normalizeCustomer,
   saveCustomers,
 } from "@/lib/customer-store";
+import { clearAccountPassword } from "@/lib/auth/password-store";
+import { resetMfa } from "@/lib/auth/mfa";
+import { deleteTenantSubscriptions } from "@/lib/subscription-store";
 import { requirePartnerAdmin } from "@/lib/auth/guards";
 import { listAudit, writeAudit } from "@/lib/audit-log";
+import { DEFAULT_TENANT_CONFIG } from "@/lib/tenancy-data";
+import type { ClientTenant, ClientTenantConfig, CustomerStatus } from "@/lib/tenancy-types";
+import { NextRequest, NextResponse } from "next/server";
+
+const CATALOG_IDS = ["microsoft-365", "dynamics-365", "azure", "server-software"] as const;
+
+function parseAllowedCatalogs(raw: unknown): ClientTenantConfig["allowedCatalogs"] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return [...DEFAULT_TENANT_CONFIG.allowedCatalogs];
+  }
+  const allowed = raw.filter((id): id is (typeof CATALOG_IDS)[number] =>
+    CATALOG_IDS.includes(id as (typeof CATALOG_IDS)[number])
+  );
+  return allowed.length ? allowed : [...DEFAULT_TENANT_CONFIG.allowedCatalogs];
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requirePartnerAdmin(request);
@@ -50,47 +70,120 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const actor = auth.session.email;
+  const name = String(body.name || "").trim();
+  const domain = String(body.domain || "").trim().toLowerCase();
+  const adminEmail = String(body.adminEmail || "").trim().toLowerCase();
+  const microsoftTenantId = String(body.microsoftTenantId || "").trim();
+
+  if (!name || !domain || !adminEmail) {
+    return NextResponse.json(
+      { error: "Company name, Microsoft domain, and client admin email are required." },
+      { status: 400 }
+    );
+  }
+  if (!adminEmail.includes("@")) {
+    return NextResponse.json({ error: "Client admin email is invalid." }, { status: 400 });
+  }
+
   const customers = loadCustomers();
+  if (customers.some((c) => c.domain.toLowerCase() === domain)) {
+    return NextResponse.json(
+      { error: "A tenant with this Microsoft domain already exists.", code: "DOMAIN_EXISTS" },
+      { status: 409 }
+    );
+  }
+  if (customers.some((c) => c.adminEmail.toLowerCase() === adminEmail)) {
+    return NextResponse.json(
+      { error: "A tenant with this admin email already exists.", code: "EMAIL_EXISTS" },
+      { status: 409 }
+    );
+  }
+
   const now = new Date().toISOString();
+  const approveImmediately = Boolean(body.approveImmediately);
+  const allowedCatalogs = parseAllowedCatalogs(body.allowedCatalogs ?? body.config?.allowedCatalogs);
 
   const config: ClientTenantConfig = {
     ...DEFAULT_TENANT_CONFIG,
     ...(body.config || {}),
-    billingContactEmail: body.billingContactEmail || body.adminEmail || "",
-    technicalContactEmail: body.technicalContactEmail || body.adminEmail || "",
-    portalAccessEnabled: false,
-    syncEnabled: false,
+    allowedCatalogs,
+    billingContactEmail: String(
+      body.billingContactEmail || body.config?.billingContactEmail || adminEmail
+    ).trim(),
+    technicalContactEmail: String(
+      body.technicalContactEmail || body.config?.technicalContactEmail || adminEmail
+    ).trim(),
+    notes: String(body.notes || body.config?.notes || "").trim(),
+    gdapEnabled: Boolean(body.gdapEnabled ?? body.config?.gdapEnabled ?? approveImmediately),
+    syncEnabled: Boolean(body.syncEnabled ?? body.config?.syncEnabled ?? approveImmediately),
+    portalAccessEnabled: approveImmediately,
   };
 
   const customer: ClientTenant = {
     id: `cust-${Date.now().toString(36)}`,
-    name: body.name,
-    domain: body.domain,
-    microsoftTenantId: body.microsoftTenantId || crypto.randomUUID(),
-    status: "pending",
-    adminEmail: body.adminEmail,
+    name,
+    domain,
+    microsoftTenantId: microsoftTenantId || crypto.randomUUID(),
+    status: approveImmediately ? "active" : "pending",
+    adminEmail,
     usersCount: 0,
     subscriptionsCount: 0,
     monthlySpend: 0,
     createdAt: now,
     lastSyncAt: now,
     createdByPartner: true,
+    configuredAt: now,
+    approvedAt: approveImmediately ? now : undefined,
+    approvedBy: approveImmediately ? actor : undefined,
     config,
   };
 
-  customers.unshift(customer);
+  customers.unshift(normalizeCustomer(customer));
   saveCustomers(customers);
+
+  const clientAccount = upsertClientAdminAccount({
+    customerId: customer.id,
+    name: `${name} Admin`,
+    email: adminEmail,
+  });
+
   writeAudit({
     action: "tenant.create",
     actorAccountId: auth.session.accountId,
     actorEmail: auth.session.email,
     actorRole: auth.session.role,
     customerId: customer.id,
-    detail: `Created pending tenant ${customer.name}`,
+    detail: approveImmediately
+      ? `Created and approved tenant ${customer.name}`
+      : `Created pending tenant ${customer.name}`,
+    meta: {
+      approveImmediately,
+      catalogs: config.allowedCatalogs.join(","),
+      clientAccountId: clientAccount.id,
+    },
   });
+
+  if (approveImmediately) {
+    writeAudit({
+      action: "tenant.approve",
+      actorAccountId: auth.session.accountId,
+      actorEmail: auth.session.email,
+      actorRole: auth.session.role,
+      customerId: customer.id,
+      detail: `Portal enabled for ${adminEmail}`,
+    });
+  }
+
   return NextResponse.json({
-    customer,
-    message: `Client tenant created by Super Admin (${actor}). Status is pending until approved & configured. Tenant data is isolated from all other clients.`,
+    customer: customers[0],
+    clientAccount: {
+      id: clientAccount.id,
+      email: clientAccount.email,
+      name: clientAccount.name,
+    },
+    message: approveImmediately
+      ? `Tenant created and approved. Client admin ${adminEmail} can sign in.`
+      : `Tenant created as pending. Configure features, then approve to enable portal access.`,
   });
 }
 
@@ -109,6 +202,113 @@ export async function PATCH(request: NextRequest) {
   const current = customers[idx];
   const now = new Date().toISOString();
   const action = body.action as string | undefined;
+
+  if (action === "delete" || action === "terminate") {
+    // Soft terminate requires four-eyes approval unless approvalId provided or force purge
+    if (!body.force && !body.approvalId && !body.skipApproval) {
+      const { loadPlatform, savePlatform } = await import("@/lib/platform-store");
+      const platform = loadPlatform();
+      const approval = {
+        id: `apr-${Date.now().toString(36)}`,
+        operation: "tenant.terminate",
+        customerId: current.id,
+        requesterEmail: auth.session.email,
+        status: "pending" as const,
+        payload: { action: "terminate" },
+        createdAt: new Date().toISOString(),
+      };
+      platform.approvals.unshift(approval);
+      savePlatform(platform);
+      writeAudit({
+        action: "tenant.delete",
+        actorAccountId: auth.session.accountId,
+        actorEmail: auth.session.email,
+        actorRole: auth.session.role,
+        customerId: current.id,
+        detail: `Termination approval requested for ${current.name}`,
+        riskLevel: "critical",
+        approvalId: approval.id,
+        result: "pending",
+      });
+      return NextResponse.json({
+        ok: false,
+        requiresApproval: true,
+        approval,
+        message: `Four-eyes approval required to terminate "${current.name}". Another Super Admin must approve in Approvals, then retry with approvalId.`,
+      });
+    }
+    if (body.approvalId && !body.force) {
+      const { loadPlatform, savePlatform } = await import("@/lib/platform-store");
+      const platform = loadPlatform();
+      const apr = platform.approvals.find((a) => a.id === body.approvalId);
+      if (!apr || apr.status !== "approved" || apr.operation !== "tenant.terminate") {
+        return NextResponse.json(
+          { error: "Valid approved termination approval required", code: "APPROVAL_REQUIRED" },
+          { status: 400 }
+        );
+      }
+      apr.status = "executed";
+      savePlatform(platform);
+    }
+    // Soft terminate by default (compliance retention). Pass force=true to hard-purge demo data.
+    if (!body.force) {
+      const terminating: ClientTenant = {
+        ...current,
+        status: "suspended",
+        lifecycle: "TERMINATING",
+        config: { ...current.config, portalAccessEnabled: false, syncEnabled: false },
+      };
+      customers[idx] = normalizeCustomer(terminating);
+      saveCustomers(customers);
+      writeAudit({
+        action: "tenant.delete",
+        actorAccountId: auth.session.accountId,
+        actorEmail: auth.session.email,
+        actorRole: auth.session.role,
+        customerId: current.id,
+        detail: `Tenant ${current.name} marked TERMINATING (portal locked; retention). Use force=true to purge.`,
+        meta: { lifecycle: "TERMINATING" },
+      });
+      return NextResponse.json({
+        ok: true,
+        deleted: false,
+        terminating: true,
+        customer: customers[idx],
+        message: `Tenant "${current.name}" entered TERMINATING lifecycle. Portal locked; records retained for audit/billing.`,
+      });
+    }
+
+    const removedAdmins = deleteClientAdminsForCustomer(current.id);
+    for (const a of removedAdmins) {
+      resetMfa(a.id);
+      clearAccountPassword(a.id);
+    }
+    const subsRemoved = deleteTenantSubscriptions(current.id);
+    const deleted = deleteCustomer(current.id);
+    if ("error" in deleted) {
+      return NextResponse.json(deleted, { status: 404 });
+    }
+    writeAudit({
+      action: "tenant.delete",
+      actorAccountId: auth.session.accountId,
+      actorEmail: auth.session.email,
+      actorRole: auth.session.role,
+      customerId: current.id,
+      detail: `Hard-purged tenant ${current.name} (${removedAdmins.length} client admins, ${subsRemoved} subscriptions)`,
+      meta: {
+        name: current.name,
+        adminsRemoved: removedAdmins.length,
+        subscriptionsRemoved: subsRemoved,
+        lifecycle: "PURGED",
+      },
+    });
+    return NextResponse.json({
+      ok: true,
+      deleted: true,
+      customer: { ...deleted.customer, lifecycle: "PURGED" },
+      message: `Tenant "${current.name}" purged.`,
+    });
+  }
 
   let next: ClientTenant = { ...current };
 
@@ -137,6 +337,9 @@ export async function PATCH(request: NextRequest) {
         ...current.config,
         portalAccessEnabled: true,
         syncEnabled: true,
+        gdapEnabled: true,
+        billingContactEmail: current.config.billingContactEmail || current.adminEmail,
+        technicalContactEmail: current.config.technicalContactEmail || current.adminEmail,
         ...(body.config || {}),
       },
     };
@@ -153,6 +356,10 @@ export async function PATCH(request: NextRequest) {
       config: { ...current.config, portalAccessEnabled: false },
     };
   } else if (action === "configure") {
+    const catalogs =
+      body.config?.allowedCatalogs != null
+        ? parseAllowedCatalogs(body.config.allowedCatalogs)
+        : current.config.allowedCatalogs;
     next = {
       ...current,
       name: body.name ?? current.name,
@@ -163,6 +370,7 @@ export async function PATCH(request: NextRequest) {
       config: {
         ...current.config,
         ...(body.config || {}),
+        allowedCatalogs: catalogs,
       },
     };
   } else if (action === "set_status") {
@@ -190,6 +398,13 @@ export async function PATCH(request: NextRequest) {
 
   customers[idx] = normalizeCustomer(next);
   saveCustomers(customers);
+
+  // Keep client-admin login in sync when identity changes
+  upsertClientAdminAccount({
+    customerId: customers[idx].id,
+    name: `${customers[idx].name} Admin`,
+    email: customers[idx].adminEmail,
+  });
 
   const auditAction =
     action === "approve"

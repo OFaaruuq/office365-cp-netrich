@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nt-csp-postgres
+    environment:
+      POSTGRES_USER: netrich
+      POSTGRES_PASSWORD: netrich_dev
+      POSTGRES_DB: netrich_csp
+    ports:
+      - "5432:5432"
+    volumes:
+      - nt_csp_pg:/var/lib/postgresql/data
+      - ./prisma/rls.sql:/docker-entrypoint-initdb.d/02-rls.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netrich -d netrich_csp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: nt-csp-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  nt_csp_pg:

@@ -18,8 +18,8 @@ export default function CollaborationPage() {
         <p className="mt-2 text-sm text-nt-text-muted">
           Collaboration metrics are isolated per tenant.
         </p>
-        <Link href="/admin/customers" className="nt-btn-primary mt-4 inline-flex">
-          Open Client Tenants
+        <Link href="/admin/tenants" className="nt-btn-primary mt-4 inline-flex">
+          Open Tenants
         </Link>
       </div>
     );

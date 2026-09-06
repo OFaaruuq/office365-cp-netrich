@@ -7,10 +7,17 @@ const DATA_DIR = path.join(process.cwd(), ".data");
 const FILE = path.join(DATA_DIR, "customers.json");
 
 export function normalizeCustomer(c: ClientTenant): ClientTenant {
+  const seed = CLIENT_TENANTS.find((s) => s.id === c.id);
   return {
+    ...(seed || {}),
     ...c,
     createdByPartner: c.createdByPartner !== false,
-    config: { ...DEFAULT_TENANT_CONFIG, ...(c.config || {}) },
+    // Recover missing config from seed; live config always wins when present
+    config: {
+      ...DEFAULT_TENANT_CONFIG,
+      ...(seed?.config || {}),
+      ...(c.config || {}),
+    },
   };
 }
 
@@ -58,11 +65,26 @@ function atomicWrite(filePath: string, contents: string) {
 }
 
 export function saveCustomers(customers: ClientTenant[]) {
-  atomicWrite(FILE, JSON.stringify(customers, null, 2));
+  // Always persist normalized records so config/portal flags are never stripped
+  atomicWrite(FILE, JSON.stringify(customers.map(normalizeCustomer), null, 2));
 }
 
 export function findCustomer(id: string): ClientTenant | undefined {
   return loadCustomers().find((c) => c.id === id);
+}
+
+/** Super Admin — permanently remove a client tenant from the live store */
+export function deleteCustomer(
+  id: string
+): { ok: true; customer: ClientTenant } | { error: string; code: string } {
+  const customers = loadCustomers();
+  const idx = customers.findIndex((c) => c.id === id);
+  if (idx < 0) {
+    return { error: "Tenant not found.", code: "NOT_FOUND" };
+  }
+  const [customer] = customers.splice(idx, 1);
+  saveCustomers(customers);
+  return { ok: true, customer };
 }
 
 /** Public fields safe for a client viewing *their own* tenant only */

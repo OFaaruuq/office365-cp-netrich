@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { InspectTenantGate } from "@/hooks/useInspectCustomer";
 import RenewalCalendar from "@/components/dashboard/RenewalCalendar";
 import UserRollupCard from "@/components/dashboard/UserRollup";
 import HelpResources from "@/components/dashboard/HelpResources";
@@ -8,27 +9,11 @@ import ProductRecommendations from "@/components/dashboard/ProductRecommendation
 import PurchasedLicenses from "@/components/dashboard/PurchasedLicenses";
 import { useTenantWorkspace } from "@/hooks/useTenantWorkspace";
 
-export default function DashboardPage() {
-  const { loading, error, workspace, needsCustomerPick, user, isClient } =
-    useTenantWorkspace();
+function DashboardBody({ customerId }: { customerId: string }) {
+  const { loading, error, workspace, user, isClient } = useTenantWorkspace(customerId);
 
   if (loading) {
     return <div className="text-sm text-nt-text-muted">Loading isolated tenant workspace…</div>;
-  }
-
-  if (needsCustomerPick) {
-    return (
-      <div className="nt-card max-w-lg p-6">
-        <h1 className="text-lg font-semibold text-nt-text">Select a client tenant</h1>
-        <p className="mt-2 text-sm text-nt-text-muted">
-          Super Admin can inspect a tenant workspace only after choosing a client. Each tenant
-          remains strictly isolated.
-        </p>
-        <Link href="/admin/customers" className="nt-btn-primary mt-4 inline-flex">
-          Open Client Tenants
-        </Link>
-      </div>
-    );
   }
 
   if (error || !workspace) {
@@ -47,7 +32,7 @@ export default function DashboardPage() {
           <p className="mt-1 text-xs text-nt-text-muted">
             Isolated workspace ·{" "}
             <strong className="text-nt-purple">
-              {user?.customerName || workspace.customerId}
+              {user?.customerName || workspace.name || workspace.customerId}
             </strong>
             {isClient ? " · your tenant only" : " · Super Admin inspection"}
           </p>
@@ -66,5 +51,13 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <InspectTenantGate title="Select a client tenant to inspect">
+      {(customerId) => <DashboardBody customerId={customerId} />}
+    </InspectTenantGate>
   );
 }

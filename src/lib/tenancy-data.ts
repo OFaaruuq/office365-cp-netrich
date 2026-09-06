@@ -173,7 +173,7 @@ export const PORTAL_ACCOUNTS: PortalAccount[] = [
     email: "admin@amtelkom.onmicrosoft.com",
     role: "customer_admin",
     customerId: "cust-amtel",
-    title: "Client Administrator",
+    title: "Tenant Super Admin",
   },
   {
     id: "acc-client-orbit",
@@ -181,7 +181,7 @@ export const PORTAL_ACCOUNTS: PortalAccount[] = [
     email: "admin@orbitdigital.onmicrosoft.com",
     role: "customer_admin",
     customerId: "cust-orbit",
-    title: "Client Administrator",
+    title: "Tenant Super Admin",
   },
 ];
 

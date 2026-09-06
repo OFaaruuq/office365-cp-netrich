@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "@/components/auth/SessionProvider";
 import { portalFetch } from "@/lib/admin-api";
+import { useInspectCustomer } from "@/hooks/useInspectCustomer";
 import type {
   CostSummary,
   PortalUser,
@@ -52,6 +53,7 @@ type State = {
 
 export function useTenantWorkspace(explicitCustomerId?: string | null) {
   const { user, isClient, isPartner, ready } = useSession();
+  const inspect = useInspectCustomer();
   const [state, setState] = useState<State>({
     loading: true,
     error: null,
@@ -60,17 +62,12 @@ export function useTenantWorkspace(explicitCustomerId?: string | null) {
   });
 
   const load = useCallback(async () => {
-    if (!ready || !user) {
+    if (!ready || !user || !inspect.ready) {
       setState({ loading: false, error: null, workspace: null, needsCustomerPick: false });
       return;
     }
 
-    const customerId =
-      (isClient && user.customerId) ||
-      explicitCustomerId ||
-      (typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("customerId")
-        : null);
+    const customerId = explicitCustomerId || inspect.customerId;
 
     if (isPartner && !customerId) {
       setState({
@@ -120,11 +117,19 @@ export function useTenantWorkspace(explicitCustomerId?: string | null) {
         needsCustomerPick: false,
       });
     }
-  }, [ready, user, isClient, isPartner, explicitCustomerId]);
+  }, [ready, user, isClient, isPartner, explicitCustomerId, inspect.ready, inspect.customerId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  return { ...state, reload: load, isPartner, isClient, user };
+  return {
+    ...state,
+    reload: load,
+    isPartner,
+    isClient,
+    user,
+    inspectCustomerId: inspect.customerId,
+    inspectCustomerName: inspect.customerName,
+  };
 }

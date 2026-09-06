@@ -1,0 +1,5 @@
+# Backend local env and dependencies
+.env
+node_modules/
+dist/
+*.log

@@ -9,15 +9,30 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { PortalAccount, SessionUser } from "@/lib/tenancy-types";
+import type { SessionUser } from "@/lib/tenancy-types";
 import { roleHomePath } from "@/lib/tenancy-types";
+
+export type MfaChallenge = {
+  step: "enroll" | "verify";
+  challengeId: string;
+  message?: string;
+  qrDataUrl?: string;
+  secret?: string;
+  otpauthUrl?: string;
+};
 
 interface SessionContextValue {
   user: SessionUser | null;
   ready: boolean;
-  accounts: PortalAccount[];
   demoLogin: boolean;
-  signIn: (accountId: string) => Promise<SessionUser>;
+  entraConfigured: boolean;
+  signIn: (accountId: string) => Promise<SessionUser | MfaChallenge>;
+  signInWithCredentials: (
+    email: string,
+    password: string
+  ) => Promise<SessionUser | MfaChallenge>;
+  signInWithEntra: () => Promise<{ mode: "redirect" | "unavailable"; message?: string }>;
+  completeMfa: (challengeId: string, code: string, action?: "verify" | "enroll") => Promise<SessionUser>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
   isPartner: boolean;
@@ -28,11 +43,20 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+function isMfaChallenge(data: Record<string, unknown>): data is MfaChallenge & {
+  mfaRequired: true;
+} {
+  return Boolean(data.mfaRequired && data.challengeId && data.step);
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
-  const [accounts, setAccounts] = useState<PortalAccount[]>([]);
   const [demoLogin, setDemoLogin] = useState(true);
   const [ready, setReady] = useState(false);
+  const entraConfigured = Boolean(
+    process.env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID &&
+      process.env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID !== "00000000-0000-0000-0000-000000000000"
+  );
 
   const refreshSession = useCallback(async () => {
     const res = await fetch("/api/auth/session", { credentials: "include" });
@@ -49,10 +73,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const [sessionRes, personasRes] = await Promise.all([
-          fetch("/api/auth/session", { credentials: "include" }),
-          fetch("/api/auth/personas", { credentials: "include" }),
-        ]);
+        const sessionRes = await fetch("/api/auth/session", { credentials: "include" });
         const sessionData = await sessionRes.json();
         if (!cancelled) {
           if (sessionData.code === "PORTAL_LOCKED" || !sessionData.authenticated) {
@@ -64,21 +85,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             setDemoLogin(sessionData.demoLogin);
           }
         }
-        if (personasRes.ok) {
-          const personas = await personasRes.json();
-          if (!cancelled) {
-            setAccounts(personas.accounts || []);
-            if (typeof personas.demoLogin === "boolean") setDemoLogin(personas.demoLogin);
-          }
-        } else if (!cancelled) {
-          setAccounts([]);
-          setDemoLogin(false);
-        }
       } catch {
-        if (!cancelled) {
-          setUser(null);
-          setAccounts([]);
-        }
+        if (!cancelled) setUser(null);
       } finally {
         if (!cancelled) setReady(true);
       }
@@ -88,7 +96,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Re-check portal lock while the portal is open (suspend converges without waiting for cookie expiry)
   useEffect(() => {
     if (!user) return;
     const tick = () => void refreshSession();
@@ -101,6 +108,57 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [user, refreshSession]);
 
+  const signInWithCredentials = useCallback(async (email: string, password: string) => {
+    const res = await fetch("/api/auth/session", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Sign-in failed");
+    }
+    if (isMfaChallenge(data)) {
+      return {
+        step: data.step as "enroll" | "verify",
+        challengeId: String(data.challengeId),
+        message: data.message ? String(data.message) : undefined,
+        qrDataUrl: data.qrDataUrl ? String(data.qrDataUrl) : undefined,
+        secret: data.secret ? String(data.secret) : undefined,
+        otpauthUrl: data.otpauthUrl ? String(data.otpauthUrl) : undefined,
+      };
+    }
+    const session = data.user as SessionUser;
+    setUser(session);
+    return session;
+  }, []);
+
+  const completeMfa = useCallback(
+    async (challengeId: string, code: string, action: "verify" | "enroll" = "verify") => {
+      const res = await fetch("/api/auth/mfa", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challengeId, code, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "MFA verification failed");
+      }
+      const session = data.user as SessionUser;
+      setUser(session);
+      void fetch("/api/csp/sessions/track", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }).catch(() => undefined);
+      return session;
+    },
+    []
+  );
+
   const signIn = useCallback(async (accountId: string) => {
     const res = await fetch("/api/auth/session", {
       method: "POST",
@@ -112,6 +170,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!res.ok) {
       throw new Error(data.error || "Sign-in failed");
     }
+    if (isMfaChallenge(data)) {
+      return {
+        step: data.step as "enroll" | "verify",
+        challengeId: String(data.challengeId),
+        message: data.message ? String(data.message) : undefined,
+        qrDataUrl: data.qrDataUrl ? String(data.qrDataUrl) : undefined,
+        secret: data.secret ? String(data.secret) : undefined,
+        otpauthUrl: data.otpauthUrl ? String(data.otpauthUrl) : undefined,
+      };
+    }
     const session = data.user as SessionUser;
     setUser(session);
     return session;
@@ -122,14 +190,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const signInWithEntra = useCallback(async () => {
+    if (!entraConfigured) {
+      return {
+        mode: "unavailable" as const,
+        message:
+          "Set NEXT_PUBLIC_AZURE_AD_CLIENT_ID to enable Microsoft Entra SSO (production identity).",
+      };
+    }
+    const { PublicClientApplication } = await import("@azure/msal-browser");
+    const { msalConfig, loginRequest } = await import("@/lib/msal-config");
+    const pca = new PublicClientApplication(msalConfig);
+    await pca.initialize();
+    await pca.loginRedirect(loginRequest);
+    return { mode: "redirect" as const };
+  }, [entraConfigured]);
+
   const value = useMemo<SessionContextValue>(() => {
     const role = user?.role;
     return {
       user,
       ready,
-      accounts,
       demoLogin,
+      entraConfigured,
       signIn,
+      signInWithCredentials,
+      signInWithEntra,
+      completeMfa,
       signOut,
       refreshSession,
       isPartner: role === "partner_admin",
@@ -137,7 +224,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       isClient: role === "customer_admin",
       homePath: role ? roleHomePath(role) : "/",
     };
-  }, [user, ready, accounts, demoLogin, signIn, signOut, refreshSession]);
+  }, [
+    user,
+    ready,
+    demoLogin,
+    entraConfigured,
+    signIn,
+    signInWithCredentials,
+    signInWithEntra,
+    completeMfa,
+    signOut,
+    refreshSession,
+  ]);
 
   return (
     <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, decodeSessionToken } from "@/lib/auth/server-session";
 
-const PUBLIC_PATHS = new Set(["/", "/api/auth/session", "/api/auth/personas"]);
+const PUBLIC_PATHS = new Set([
+  "/",
+  "/api/auth/session",
+  "/api/auth/personas",
+  "/api/auth/mfa",
+]);
 
 function isPublic(pathname: string) {
   if (PUBLIC_PATHS.has(pathname)) return true;
@@ -34,7 +39,7 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/api/admin") && session.role !== "partner_admin") {
       return NextResponse.json(
         {
-          error: "Super Admin only. Tenants are isolated and clients cannot access admin APIs.",
+          error: "Access denied.",
           code: "SUPER_ADMIN_REQUIRED",
         },
         { status: 403 }

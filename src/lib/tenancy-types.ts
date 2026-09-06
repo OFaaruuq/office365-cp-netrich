@@ -8,6 +8,14 @@ export type SupportTeam = "technical" | "billing";
 
 export type CustomerStatus = "pending" | "active" | "suspended" | "rejected";
 
+/** Soft-delete / retention lifecycle (enterprise — no immediate hard purge by default) */
+export type CustomerLifecycle =
+  | "ACTIVE"
+  | "SUSPENDED"
+  | "TERMINATING"
+  | "RETENTION"
+  | "PURGED";
+
 export interface PartnerOrg {
   id: string;
   name: string;
@@ -35,6 +43,8 @@ export interface ClientTenant {
   domain: string;
   microsoftTenantId: string;
   status: CustomerStatus;
+  /** Soft lifecycle; hard delete only after RETENTION / purge */
+  lifecycle?: CustomerLifecycle;
   adminEmail: string;
   usersCount: number;
   subscriptionsCount: number;
@@ -59,6 +69,10 @@ export interface PortalAccount {
   /** Set for support agents */
   team?: SupportTeam;
   title: string;
+  /** When true, login is blocked (Super Admin managed) */
+  disabled?: boolean;
+  /** Soft-deleted by Super Admin (hidden from lists; login blocked) */
+  deleted?: boolean;
 }
 
 export interface SessionUser {
@@ -119,12 +133,12 @@ export function roleHomePath(role: PortalRole): string {
 export function roleLabel(role: PortalRole): string {
   switch (role) {
     case "partner_admin":
-      return "Partner Admin";
+      return "Partner Super Admin";
     case "support_technical":
       return "Technical Support";
     case "support_billing":
       return "Billing Support";
     case "customer_admin":
-      return "Client Admin";
+      return "Tenant Super Admin";
   }
 }

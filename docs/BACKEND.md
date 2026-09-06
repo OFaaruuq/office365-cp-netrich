@@ -1,20 +1,35 @@
 # netrichtechnologies — Backend Documentation
 
-> **Status:** This document describes the **target NestJS + PostgreSQL** architecture.
-> The running Next.js control panel already implements **demo-grade hard multi-tenant isolation**
-> (signed session, `resolveTenantScope`, audit log, portal lock re-check). See `MULTI_TENANT.md`
-> for what is live in this repo today.
+> **Status:** Target NestJS + PostgreSQL architecture **and** what is live in-repo for **Phase 1 Foundation**.
+>
+> **Running today**
+> - Next.js UI + Route Handlers (auth/MFA, admin, workspace, commerce, support) with `.data/*.json`
+> - NestJS API + Prisma schema + docker-compose Postgres/Redis under [`backend/`](../backend/)
+> - Next BFF `/api/csp/*` → Nest `/v1/*` with foundation.json fallback
+>
+> Live runbooks: [backend/README.md](../backend/README.md) · [DOCUMENTATION.md](./DOCUMENTATION.md) · [MULTI_TENANT.md](./MULTI_TENANT.md) · [CSP_PRODUCTION_ARCHITECTURE.md](./CSP_PRODUCTION_ARCHITECTURE.md)
 
 **Multi-tenant CSP Control Panel · PostgreSQL · Microsoft Graph · Partner Center · External Integrations**
 
 | | |
 |---|---|
 | **Product** | netrichtechnologies Microsoft 365 Control Panel |
-| **Frontend** | Next.js (`office365.cp.netrichtechnologies.com`) |
-| **Backend API (recommended)** | NestJS (TypeScript) on `api.office365.cp.netrichtechnologies.com` |
-| **Database** | PostgreSQL |
-| **Cache / queue** | Redis + BullMQ (or Azure Service Bus) |
-| **Identity** | Microsoft Entra ID (MSAL) + portal session JWT |
+| **Frontend / BFF** | Next.js (`office365.cp.netrichtechnologies.com`, local `:3000`) |
+| **Backend API** | NestJS in `backend/apps/api` (`api.office365.cp…`, local `:8080`) |
+| **Database** | PostgreSQL (Prisma) — Foundation; `.data` remains MVP dual-write bridge |
+| **Cache / queue** | Redis + BullMQ worker stubs |
+| **Identity** | Entra access-token validation (Nest) + Next demo email/TOTP · production = Entra MFA claims |
+
+### Live API surface (today)
+
+| Group | Paths |
+|-------|--------|
+| Next Auth | `/api/auth/session`, `/api/auth/mfa`, `/api/auth/personas` |
+| Next Admin | `/api/admin/customers`, `/api/admin/users`, `/api/admin/catalog`, `/api/admin/audit` |
+| Next CSP BFF | `/api/csp/*` → Nest `/v1/*` or `.data/foundation.json` |
+| Next Workspace | `/api/me/*`, `/api/users`, `/api/products`, `/api/subscriptions`, `/api/commerce/subscribe` |
+| Next Support | `/api/support/threads`, `/api/chat` |
+| Nest Foundation | `/health`, `/v1/auth/*`, `/v1/customers`, `/v1/gdap`, `/v1/onboarding`, `/v1/rbac`, `/v1/flags`, `/v1/microsoft/integration`, `/v1/audit`, `/v1/admin-access`, `/v1/approvals` |
 
 ---
 
@@ -99,7 +114,7 @@ NestJS API  ──────────────────────�
 4. **Integration hub** — one backend orchestrates Microsoft + billing + support + CRM + monitoring.
 5. **Async by default** — long syncs and webhooks never block HTTP requests.
 6. **Audit everything** — license changes, logins, orders, admin actions.
-7. **Least privilege** — app-only Graph/Partner credentials; short-lived user tokens.
+7. **Least privilege** — certificates / Key Vault; short-lived user tokens; **per-operation** Graph/Partner Center auth (App+User vs app credentials — never “app-only + GDAP for everything”).
 
 ---
 
@@ -409,7 +424,7 @@ Base URL: `https://api.office365.cp.netrichtechnologies.com/v1`
 | Secure Score | `/security/secureScores` |
 | Threats | Defender / security alerts APIs |
 
-Prefer **partner app-only + GDAP** so sync works without interactive admin every time.
+Prefer **Secure Application Model** with certificates in Key Vault. Auth is **per Microsoft API operation** (App+User + GDAP consent where required; partner app credentials where appropriate). Do **not** assume universal “app-only + GDAP” covers all Graph/Partner Center calls.
 
 ### C. Partner Center (commerce)
 
@@ -589,74 +604,47 @@ Frontend keeps only `NEXT_PUBLIC_*` (SPA client ID, API base URL). **No Partner 
 
 ## 13. Implementation roadmap
 
-### Phase 0 — Foundation (1–2 weeks)
-- NestJS monorepo / `apps/api` + `apps/worker`
-- PostgreSQL migrations (customers, tenants, portal_users)
-- Auth callback + JWT + tenant guard
-- Health checks, logging, Sentry
+### Done — MVP UI (Next.js)
+- Hard multi-tenant isolation, Super Admin tenants/users (disable/terminate/delete)
+- MFA (TOTP), per-account passwords, audit log, catalog commerce, support queues
+- Partner Control Center + customer nav; `/api/csp` BFF; `.data/*.json` + `foundation.json`
 
-### Phase 1 — Dynamic Users (1–2 weeks)
-- `directory_users` schema
-- Graph sync job + `POST /users/sync`
-- Wire Next.js Users page to API
+### Done — Phase 1 Foundation (`backend/`)
+- NestJS API + BullMQ worker stubs
+- Prisma schema (customers ≠ microsoft_tenants, GDAP, RBAC, sessions, audit, onboarding, flags, jobs, approvals)
+- RLS SQL helpers/policies; docker-compose Postgres/Redis
+- Entra token validation + session create; SAM/Key Vault status stubs
+- Seed + `migrate:from-data` from `.data`
 
-### Phase 2 — Subscriptions & Dashboard (2–3 weeks)
-- Sync subscriptions + seats
-- Dashboard overview endpoint
-- Products page dynamic
+### Phase 2 — Microsoft Connected
+- Live SAM token acquire/refresh with certificates + Key Vault
+- Graph delta sync; Partner Center **read-only**
+- Throttling, DLQ UI, service health / security expansion
 
-### Phase 3 — Catalog & Orders (2–4 weeks)
-- Partner Center catalog sync
-- Create order / change seats
-- Cost summary + renewals
-
-### Phase 4 — Billing & Security (2 weeks)
-- Invoices
-- Secure Score snapshots
-
-### Phase 5 — Integrations hub (ongoing)
-- Support (Zendesk/Teams)
-- Notifications
-- CRM / PSA as needed
-- Partner Ops console
+### Phase 3 — Full CSP
+- NCE eligibility + order state machine + idempotency
+- Quotes, renewals, billing/reconciliation, Azure domain
+- Public API, webhooks, full observability
 
 ---
 
-## 14. Folder structure (recommended)
+## 14. Folder structure (in-repo Phase 1)
 
 ```
 backend/
   apps/
-    api/                     # NestJS HTTP API
-      src/
-        main.ts
-        modules/
-          auth/
-          tenancy/
-          users/
-          subscriptions/
-          catalog/
-          orders/
-          billing/
-          security/
-          support/
-          integrations/
-          ops/
-          audit/
-        common/              # guards, filters, interceptors
-    worker/                  # NestJS / BullMQ processors
-  libs/
-    database/                # Prisma or TypeORM / Drizzle schemas
-    microsoft/               # Graph + Partner Center clients
-    integrations/            # Zendesk, SendGrid, ...
-  prisma/
-    schema.prisma
-    migrations/
-  docker-compose.yml         # postgres + redis
+    api/src/                 # NestJS controllers (auth, customers, gdap, …)
+    worker/src/              # BullMQ stub worker
+  libs/                      # prisma, entra, sam, rbac, guards
+  prisma/                    # schema, migrations, seed, rls*.sql
+  scripts/migrate-from-data.ts
+  docker-compose.yml
   README.md
 ```
 
-**ORM suggestion:** Prisma or Drizzle with PostgreSQL.
+Target expansion (Phase 2–3): dedicated modules under `apps/api` for Partner Center, billing, Graph sync; Key Vault clients under `libs/microsoft/`.
+
+**ORM:** Prisma + PostgreSQL (already in use).
 
 ---
 
@@ -675,7 +663,10 @@ backend/
 
 ## Related docs
 
-- Frontend / product modules: [DOCUMENTATION.md](./DOCUMENTATION.md)
+- Product modules: [DOCUMENTATION.md](./DOCUMENTATION.md)
+- CSP stages / SAM / GDAP / NCE: [CSP_PRODUCTION_ARCHITECTURE.md](./CSP_PRODUCTION_ARCHITECTURE.md)
+- Isolation & Super Admin: [MULTI_TENANT.md](./MULTI_TENANT.md)
+- Nest runbook: [../backend/README.md](../backend/README.md)
 - Quick start: [../README.md](../README.md)
 
 ---

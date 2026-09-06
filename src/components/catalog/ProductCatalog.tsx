@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Search, X } from "lucide-react";
 import type { CatalogProduct } from "@/lib/types";
+import { portalFetch } from "@/lib/admin-api";
 import clsx from "clsx";
 
 export default function ProductCatalog({
@@ -11,18 +12,28 @@ export default function ProductCatalog({
   filters,
   showAttachPricing = false,
   billingModes = ["Monthly", "Annual", "Triennial"] as string[],
+  canPurchase = false,
+  onPurchased,
 }: {
   title: string;
   products: CatalogProduct[];
   filters: string[];
   showAttachPricing?: boolean;
   billingModes?: string[];
+  /** Client tenants can purchase / subscribe */
+  canPurchase?: boolean;
+  onPurchased?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState(filters[filters.length - 1] || "All");
   const [sort, setSort] = useState("name-asc");
   const [billing, setBilling] = useState(billingModes[0]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [buyProduct, setBuyProduct] = useState<CatalogProduct | null>(null);
+  const [qty, setQty] = useState(1);
+  const [buying, setBuying] = useState(false);
+  const [buyError, setBuyError] = useState<string | null>(null);
+  const [buyOk, setBuyOk] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     let list = products.filter((p) => {
@@ -46,22 +57,58 @@ export default function ProductCatalog({
     return list;
   }, [products, filter, query, sort]);
 
+  async function confirmPurchase(e: React.FormEvent) {
+    e.preventDefault();
+    if (!buyProduct) return;
+    setBuying(true);
+    setBuyError(null);
+    setBuyOk(null);
+    try {
+      const res = await portalFetch("/api/commerce/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: buyProduct.id,
+          quantity: qty,
+          billingCycle: billing,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBuyError(data.error || "Purchase failed");
+        return;
+      }
+      setBuyOk(data.message || "Subscribed successfully");
+      onPurchased?.();
+      setTimeout(() => {
+        setBuyProduct(null);
+        setBuyOk(null);
+        setQty(1);
+      }, 1200);
+    } finally {
+      setBuying(false);
+    }
+  }
+
+  const unitPreview = buyProduct
+    ? billing === "Annual" && buyProduct.priceYearly != null
+      ? Number((buyProduct.priceYearly / 12).toFixed(2))
+      : buyProduct.priceMonthly
+    : 0;
+
   return (
     <div className="nt-fade-in">
       <h1 className="nt-page-title">{title}</h1>
 
       {title === "Microsoft 365" && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-nt-blue/20 bg-gradient-to-r from-nt-blue-soft to-white px-5 py-4 shadow-xs">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-nt-blue/20 bg-nt-blue-soft/40 px-5 py-4">
           <div>
-            <div className="text-sm font-semibold text-nt-text">Recommended for you</div>
+            <div className="text-sm font-semibold text-nt-text">Purchase & subscribe</div>
             <p className="mt-0.5 text-sm text-nt-text-muted">
-              Based on your current subscriptions, we recommend security and productivity
-              add-ons.
+              Prices are set by netrichtechnologies Super Admin. Add seats to subscribe for your
+              tenant only.
             </p>
           </div>
-          <button type="button" className="nt-btn-outline bg-white">
-            View recommendations
-          </button>
         </div>
       )}
 
@@ -113,7 +160,7 @@ export default function ProductCatalog({
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value)}
-            className="rounded-lg border border-nt-border-strong bg-white px-3 py-2 text-sm outline-none focus:border-nt-purple focus:shadow-[0_0_0_3px_rgba(92,45,145,0.15)]"
+            className="rounded-lg border border-nt-border-strong bg-white px-3 py-2 text-sm outline-none focus:border-nt-purple"
           >
             <option value="name-asc">Name: A-Z</option>
             <option value="name-desc">Name: Z-A</option>
@@ -123,7 +170,7 @@ export default function ProductCatalog({
         </div>
 
         <div className="flex flex-col items-end gap-1.5">
-          <div className="inline-flex overflow-hidden rounded-xl border border-nt-border bg-white p-1 shadow-xs">
+          <div className="inline-flex overflow-hidden rounded-xl border border-nt-border bg-white p-1">
             {billingModes.map((mode) => (
               <button
                 key={mode}
@@ -132,8 +179,8 @@ export default function ProductCatalog({
                 className={clsx(
                   "rounded-lg px-4 py-1.5 text-sm font-semibold transition",
                   billing === mode
-                    ? "bg-[#243a5e] text-white shadow-sm"
-                    : "text-nt-text-muted hover:bg-nt-surface-muted hover:text-nt-text"
+                    ? "bg-[#243a5e] text-white"
+                    : "text-nt-text-muted hover:bg-nt-surface-muted"
                 )}
               >
                 {mode}
@@ -180,9 +227,22 @@ export default function ProductCatalog({
                   className="border-b border-nt-border/80 align-top transition last:border-0 hover:bg-nt-purple-soft/30"
                 >
                   <td className="px-5 py-4">
-                    <button type="button" className="nt-link text-xs font-semibold">
-                      {p.status === "purchased" ? "Manage Subscriptions" : "Add Subscriptions"}
-                    </button>
+                    {canPurchase ? (
+                      <button
+                        type="button"
+                        className="nt-btn-primary py-1.5 text-xs"
+                        onClick={() => {
+                          setBuyProduct(p);
+                          setQty(p.qty > 0 ? 1 : 1);
+                          setBuyError(null);
+                          setBuyOk(null);
+                        }}
+                      >
+                        {p.status === "purchased" ? "Add seats" : "Purchase / Subscribe"}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-nt-text-muted">View only</span>
+                    )}
                     <div className="mt-2 flex items-center gap-1.5 text-xs text-nt-text-muted">
                       <span
                         className={clsx(
@@ -196,11 +256,6 @@ export default function ProductCatalog({
                   <td className="px-5 py-4 font-medium">{p.qty || "—"}</td>
                   <td className="px-5 py-4">
                     <div className="font-semibold">{p.name}</div>
-                    {p.compatibleAddons && (
-                      <button type="button" className="nt-link mt-1 text-xs">
-                        Compatible Add-ons
-                      </button>
-                    )}
                   </td>
                   <td className="max-w-xs px-5 py-4">
                     <button
@@ -267,6 +322,70 @@ export default function ProductCatalog({
           </table>
         </div>
       </div>
+
+      {buyProduct && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-nt-text/40 p-4 backdrop-blur-[2px] sm:items-center">
+          <form
+            onSubmit={confirmPurchase}
+            className="nt-card w-full max-w-md overflow-hidden shadow-lg"
+          >
+            <div className="flex items-center justify-between border-b border-nt-border bg-nt-purple-soft/50 px-5 py-4">
+              <div>
+                <div className="text-sm font-semibold">Purchase / subscribe</div>
+                <div className="text-xs text-nt-text-muted">{buyProduct.name}</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg p-1.5 hover:bg-white"
+                onClick={() => setBuyProduct(null)}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="space-y-3 p-5">
+              <p className="text-xs text-nt-text-muted">
+                Subscription is isolated to your tenant. Billing cycle:{" "}
+                <strong>{billing}</strong>
+              </p>
+              <label className="block text-xs font-medium text-nt-text-muted">
+                Number of seats
+                <input
+                  className="nt-input mt-1"
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={qty}
+                  onChange={(e) => setQty(Number(e.target.value))}
+                  required
+                />
+              </label>
+              <div className="rounded-lg bg-nt-surface-muted px-3 py-2 text-sm">
+                Est. monthly:{" "}
+                <strong className="text-nt-purple">
+                  ${(unitPreview * qty).toFixed(2)}
+                </strong>
+                <span className="text-xs text-nt-text-muted">
+                  {" "}
+                  (${unitPreview.toFixed(2)} × {qty})
+                </span>
+              </div>
+              {buyError && (
+                <div className="text-sm text-nt-danger">{buyError}</div>
+              )}
+              {buyOk && <div className="text-sm text-nt-success">{buyOk}</div>}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-nt-border bg-nt-surface-muted/40 px-5 py-3">
+              <button type="button" className="nt-btn-outline" onClick={() => setBuyProduct(null)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={buying} className="nt-btn-primary">
+                {buying ? "Processing…" : "Confirm subscribe"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

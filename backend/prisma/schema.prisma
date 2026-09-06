@@ -1,0 +1,530 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CustomerLifecycle {
+  ACTIVE
+  SUSPENDED
+  TERMINATING
+  RETENTION
+  PURGED
+}
+
+enum CustomerStatus {
+  pending
+  active
+  suspended
+  rejected
+}
+
+enum ActorType {
+  user
+  worker
+  service_principal
+  integration
+  system
+}
+
+enum RiskLevel {
+  low
+  medium
+  high
+  critical
+}
+
+enum GdapStatus {
+  draft
+  pending_acceptance
+  active
+  expired
+  terminated
+  error
+}
+
+enum OnboardingStepKey {
+  customer_created
+  microsoft_tenant_identified
+  csp_relationship
+  gdap_relationship
+  customer_accepted
+  application_consent
+  permissions_verified
+  graph_sync
+  partner_center_sync
+  pricing_configured
+  client_admin_created
+  portal_activated
+}
+
+enum JobStatus {
+  queued
+  running
+  succeeded
+  failed
+  dead_letter
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+  expired
+  executed
+}
+
+model Partner {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  domain    String
+  createdAt DateTime @default(now()) @map("created_at")
+  customers Customer[]
+  portalUsers PortalUser[]
+
+  @@map("partners")
+}
+
+model Customer {
+  id                 String            @id @default(uuid())
+  partnerId          String            @map("partner_id")
+  name               String
+  domain             String
+  status             CustomerStatus    @default(pending)
+  lifecycle          CustomerLifecycle @default(ACTIVE)
+  adminEmail         String            @map("admin_email")
+  usersCount         Int               @default(0) @map("users_count")
+  subscriptionsCount Int               @default(0) @map("subscriptions_count")
+  monthlySpend       Float             @default(0) @map("monthly_spend")
+  portalAccessEnabled Boolean          @default(false) @map("portal_access_enabled")
+  syncEnabled        Boolean           @default(false) @map("sync_enabled")
+  gdapEnabled        Boolean           @default(false) @map("gdap_enabled")
+  allowedCatalogs    String[]          @default([]) @map("allowed_catalogs")
+  notes              String            @default("")
+  legacyId           String?           @unique @map("legacy_id")
+  approvedAt         DateTime?         @map("approved_at")
+  approvedBy         String?           @map("approved_by")
+  configuredAt       DateTime?         @map("configured_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  deletedAt          DateTime?         @map("deleted_at")
+
+  partner          Partner            @relation(fields: [partnerId], references: [id])
+  microsoftTenants MicrosoftTenant[]
+  contacts         CustomerContact[]
+  portalUsers      PortalUser[]
+  gdapRelationships GdapRelationship[]
+  onboardingSteps  OnboardingStep[]
+  auditEvents      AuditEvent[]       @relation("AuditTargetCustomer")
+  adminAccessSessions AdminAccessSession[]
+  graphSyncStates  GraphSyncState[]
+  notifications    Notification[]
+
+  @@index([partnerId])
+  @@index([status])
+  @@index([lifecycle])
+  @@map("customers")
+}
+
+model MicrosoftTenant {
+  id                 String   @id @default(uuid())
+  customerId         String   @map("customer_id")
+  entraTenantId      String   @map("entra_tenant_id")
+  displayName        String?
+  defaultDomain      String?  @map("default_domain")
+  isPrimary          Boolean  @default(true) @map("is_primary")
+  lastSyncAt         DateTime? @map("last_sync_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  domains  Domain[]
+
+  @@unique([customerId, entraTenantId])
+  @@index([customerId])
+  @@map("microsoft_tenants")
+}
+
+model Domain {
+  id                String   @id @default(uuid())
+  microsoftTenantId String   @map("microsoft_tenant_id")
+  name              String
+  isVerified        Boolean  @default(false) @map("is_verified")
+  isPrimary         Boolean  @default(false) @map("is_primary")
+  mxOk              Boolean? @map("mx_ok")
+  spfOk             Boolean? @map("spf_ok")
+  dkimOk            Boolean? @map("dkim_ok")
+  dmarcOk           Boolean? @map("dmarc_ok")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  microsoftTenant MicrosoftTenant @relation(fields: [microsoftTenantId], references: [id], onDelete: Cascade)
+
+  @@unique([microsoftTenantId, name])
+  @@map("domains")
+}
+
+model CustomerContact {
+  id         String   @id @default(uuid())
+  customerId String   @map("customer_id")
+  type       String
+  name       String?
+  email      String
+  phone      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_contacts")
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  key         String @unique
+  description String @default("")
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model Role {
+  id          String @id @default(uuid())
+  key         String @unique
+  name        String
+  scope       String // partner | customer
+  description String @default("")
+  rolePermissions RolePermission[]
+  userRoles   UserRole[]
+
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model PortalUser {
+  id           String   @id @default(uuid())
+  partnerId    String?  @map("partner_id")
+  customerId   String?  @map("customer_id")
+  email        String   @unique
+  name         String
+  title        String   @default("")
+  legacyRole   String?  @map("legacy_role")
+  entraOid     String?  @map("entra_oid")
+  entraTid     String?  @map("entra_tid")
+  disabled     Boolean  @default(false)
+  deleted      Boolean  @default(false)
+  breakGlass   Boolean  @default(false) @map("break_glass")
+  legacyId     String?  @unique @map("legacy_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  partner   Partner?  @relation(fields: [partnerId], references: [id])
+  customer  Customer? @relation(fields: [customerId], references: [id])
+  userRoles UserRole[]
+  sessions  Session[]
+  auditEvents AuditEvent[] @relation("AuditActorUser")
+  adminAccessSessions AdminAccessSession[]
+
+  @@index([customerId])
+  @@index([partnerId])
+  @@map("portal_users")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+  user   PortalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model Session {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  refreshTokenHash String?   @map("refresh_token_hash")
+  ip               String?
+  userAgent        String?   @map("user_agent")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  lastSeenAt       DateTime  @default(now()) @map("last_seen_at")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+
+  user PortalUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model GdapRelationship {
+  id                      String     @id @default(uuid())
+  customerId              String     @map("customer_id")
+  microsoftRelationshipId String?    @map("microsoft_relationship_id")
+  displayName             String
+  status                  GdapStatus @default(draft)
+  createdAt               DateTime   @default(now()) @map("created_at")
+  activatedAt             DateTime?  @map("activated_at")
+  expiresAt               DateTime?  @map("expires_at")
+  durationDays            Int?       @map("duration_days")
+  autoExtend              Boolean    @default(false) @map("auto_extend")
+  lastSyncAt              DateTime?  @map("last_sync_at")
+
+  customer    Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  roles       GdapRole[]
+  assignments GdapAssignment[]
+  events      GdapEvent[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("gdap_relationships")
+}
+
+model GdapRole {
+  id               String @id @default(uuid())
+  relationshipId   String @map("relationship_id")
+  roleDefinitionId String @map("role_definition_id")
+  roleName         String @map("role_name")
+
+  relationship GdapRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+
+  @@index([relationshipId])
+  @@map("gdap_roles")
+}
+
+model GdapAssignment {
+  id                    String @id @default(uuid())
+  relationshipId        String @map("relationship_id")
+  partnerSecurityGroupId String @map("partner_security_group_id")
+  roleDefinitionId      String @map("role_definition_id")
+
+  relationship GdapRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+
+  @@index([relationshipId])
+  @@map("gdap_assignments")
+}
+
+model GdapEvent {
+  id             String   @id @default(uuid())
+  relationshipId String   @map("relationship_id")
+  event          String
+  oldStatus      String?  @map("old_status")
+  newStatus      String?  @map("new_status")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  relationship GdapRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+
+  @@index([relationshipId])
+  @@map("gdap_events")
+}
+
+model OnboardingStep {
+  id          String            @id @default(uuid())
+  customerId  String            @map("customer_id")
+  stepKey     OnboardingStepKey @map("step_key")
+  completed   Boolean           @default(false)
+  completedAt DateTime?         @map("completed_at")
+  meta        Json?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, stepKey])
+  @@index([customerId])
+  @@map("onboarding_steps")
+}
+
+model AuditEvent {
+  id                 String    @id @default(uuid())
+  at                 DateTime  @default(now())
+  action             String
+  actorType          ActorType @default(user) @map("actor_type")
+  actorUserId        String?   @map("actor_user_id")
+  actorEmail         String?
+  actorRole          String?   @map("actor_role")
+  actorTenant        String?   @map("actor_tenant")
+  targetCustomerId   String?   @map("target_customer_id")
+  targetTenant       String?   @map("target_tenant")
+  requestId          String?   @map("request_id")
+  correlationId      String?   @map("correlation_id")
+  sessionId          String?   @map("session_id")
+  userAgent          String?   @map("user_agent")
+  sourceIp           String?   @map("source_ip")
+  operation          String?
+  result             String?
+  riskLevel          RiskLevel @default(low) @map("risk_level")
+  approvalId         String?   @map("approval_id")
+  microsoftRequestId String?   @map("microsoft_request_id")
+  detail             String?
+  before             Json?
+  after              Json?
+  meta               Json?
+
+  actorUser      PortalUser? @relation("AuditActorUser", fields: [actorUserId], references: [id])
+  targetCustomer Customer?   @relation("AuditTargetCustomer", fields: [targetCustomerId], references: [id])
+
+  @@index([at])
+  @@index([action])
+  @@index([targetCustomerId])
+  @@map("audit_events")
+}
+
+model AdminAccessSession {
+  id         String    @id @default(uuid())
+  actorUserId String   @map("actor_user_id")
+  customerId String    @map("customer_id")
+  reason     String
+  readOnly   Boolean   @default(true) @map("read_only")
+  startedAt  DateTime  @default(now()) @map("started_at")
+  expiresAt  DateTime  @map("expires_at")
+  endedAt    DateTime? @map("ended_at")
+
+  actorUser PortalUser @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  customer  Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([actorUserId])
+  @@index([customerId])
+  @@map("admin_access_sessions")
+}
+
+model PrivilegedApproval {
+  id          String         @id @default(uuid())
+  operation   String
+  customerId  String?        @map("customer_id")
+  requesterId String         @map("requester_id")
+  approverId  String?        @map("approver_id")
+  status      ApprovalStatus @default(pending)
+  payload     Json?
+  createdAt   DateTime       @default(now()) @map("created_at")
+  decidedAt   DateTime?      @map("decided_at")
+  executedAt  DateTime?      @map("executed_at")
+
+  @@index([status])
+  @@map("privileged_approvals")
+}
+
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  description String   @default("")
+  enabledGlobal Boolean @default(false) @map("enabled_global")
+  customerIds String[] @default([]) @map("customer_ids")
+  environments String[] @default(["development"]) 
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("feature_flags")
+}
+
+model IdempotencyKey {
+  id           String   @id @default(uuid())
+  key          String
+  customerId   String?  @map("customer_id")
+  operation    String
+  requestHash  String   @map("request_hash")
+  status       String
+  responseCode Int?     @map("response_code")
+  responseBody Json?    @map("response_body")
+  createdAt    DateTime @default(now()) @map("created_at")
+  expiresAt    DateTime @map("expires_at")
+
+  @@unique([key, operation])
+  @@index([customerId])
+  @@map("idempotency_keys")
+}
+
+model GraphSyncState {
+  id            String    @id @default(uuid())
+  customerId    String    @map("customer_id")
+  entraTenantId String    @map("entra_tenant_id")
+  resource      String
+  deltaLink     String?   @map("delta_link")
+  lastFullSync  DateTime? @map("last_full_sync")
+  lastDeltaSync DateTime? @map("last_delta_sync")
+  status        String    @default("idle")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, entraTenantId, resource])
+  @@map("graph_sync_states")
+}
+
+model Job {
+  id          String    @id @default(uuid())
+  name        String
+  queue       String
+  customerId  String?   @map("customer_id")
+  status      JobStatus @default(queued)
+  payload     Json?
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  jobAttempts JobAttempt[]
+
+  @@index([status])
+  @@index([queue])
+  @@map("jobs")
+}
+
+model JobAttempt {
+  id        String   @id @default(uuid())
+  jobId     String   @map("job_id")
+  attempt   Int
+  status    String
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@map("job_attempts")
+}
+
+model Notification {
+  id         String    @id @default(uuid())
+  customerId String?   @map("customer_id")
+  userId     String?   @map("user_id")
+  type       String
+  severity   String    @default("info")
+  title      String
+  message    String
+  actionUrl  String?   @map("action_url")
+  readAt     DateTime? @map("read_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([customerId])
+  @@map("notifications")
+}
+
+model IntegrationHealth {
+  id           String   @id @default(uuid())
+  component    String   @unique
+  status       String   @default("unknown")
+  detail       String?
+  lastCheckedAt DateTime @default(now()) @map("last_checked_at")
+  meta         Json?
+
+  @@map("integration_health")
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}

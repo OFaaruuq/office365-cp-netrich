@@ -1,49 +1,45 @@
 "use client";
 
-import Link from "next/link";
 import UsersTable from "@/components/users/UsersTable";
-import { useTenantWorkspace } from "@/hooks/useTenantWorkspace";
+import { InspectTenantGate } from "@/hooks/useInspectCustomer";
+import { useEffect, useState } from "react";
+import { portalFetch } from "@/lib/admin-api";
+import type { PortalUser } from "@/lib/types";
 
 export default function UsersPage() {
-  const { loading, error, workspace, needsCustomerPick } = useTenantWorkspace();
+  return (
+    <InspectTenantGate title="Select a client tenant for Users">
+      {(customerId) => <UsersBody customerId={customerId} />}
+    </InspectTenantGate>
+  );
+}
 
-  if (loading) {
-    return <div className="text-sm text-nt-text-muted">Loading tenant users…</div>;
-  }
+function UsersBody({ customerId }: { customerId: string }) {
+  const [users, setUsers] = useState<PortalUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (needsCustomerPick) {
-    return (
-      <div className="nt-card max-w-lg p-6">
-        <h1 className="text-lg font-semibold">Select a client tenant</h1>
-        <p className="mt-2 text-sm text-nt-text-muted">
-          User directories are isolated per tenant. Choose a client from Super Admin.
-        </p>
-        <Link href="/admin/customers" className="nt-btn-primary mt-4 inline-flex">
-          Open Client Tenants
-        </Link>
-      </div>
-    );
-  }
+  useEffect(() => {
+    setLoading(true);
+    void portalFetch(`/api/users?customerId=${encodeURIComponent(customerId)}`)
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Failed");
+        setUsers(d.users || []);
+        setError(null);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed"))
+      .finally(() => setLoading(false));
+  }, [customerId]);
 
-  if (error || !workspace) {
+  if (loading) return <div className="text-sm text-nt-text-muted">Loading tenant users…</div>;
+  if (error) {
     return (
       <div className="rounded-xl border border-nt-danger/30 bg-nt-danger-soft px-4 py-3 text-sm text-nt-danger">
-        {error || "Unable to load users"}
+        {error}
       </div>
     );
   }
 
-  const total =
-    workspace.userRollup.active +
-    workspace.userRollup.pending +
-    workspace.userRollup.blocked +
-    workspace.userRollup.error;
-
-  return (
-    <UsersTable
-      initialUsers={workspace.users}
-      totalCount={total || workspace.users.length}
-      customerId={workspace.customerId}
-    />
-  );
+  return <UsersTable initialUsers={users} totalCount={users.length} customerId={customerId} />;
 }

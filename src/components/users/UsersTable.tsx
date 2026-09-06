@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownUp,
   CheckCircle2,
@@ -52,7 +52,10 @@ export default function UsersTable({
   const [users, setUsers] = useState(initialUsers);
   const [query, setQuery] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ displayName: "", email: "", license: "" });
   const [sortKey, setSortKey] = useState<"user" | "licenses" | "access">("user");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -89,6 +92,8 @@ export default function UsersTable({
     }
   }
 
+  const qs = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
+
   async function handleSync() {
     setSyncing(true);
     setSyncMessage(null);
@@ -121,20 +126,67 @@ export default function UsersTable({
     }
   }
 
+  async function handleAdd(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setSyncMessage(null);
+    try {
+      const res = await portalFetch(`/api/users${qs}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          displayName: form.displayName,
+          email: form.email,
+          licenses: form.license ? [form.license] : [],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncMessage(data.error || "Create failed");
+        return;
+      }
+      setUsers(data.users || []);
+      setForm({ displayName: "", email: "", license: "" });
+      setShowAdd(false);
+      setSyncMessage(`Created ${data.user?.email}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function patchUser(userId: string, body: Record<string, unknown>) {
+    setBusy(true);
+    try {
+      const res = await portalFetch(`/api/users${qs}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, ...body }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncMessage(data.error || "Update failed");
+        return;
+      }
+      setUsers(data.users || []);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="nt-fade-in">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="nt-page-title mb-1">Users</h1>
           <p className="text-sm text-nt-text-muted">
-            <span className="font-semibold text-nt-text">{totalCount}</span> Microsoft 365 users
-            synced from your directory
+            <span className="font-semibold text-nt-text">{users.length || totalCount}</span> Microsoft
+            365 users — create, block, and assign licenses (Foundation directory store)
           </p>
         </div>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-nt-border bg-white p-3 shadow-xs">
-        <button type="button" className="nt-btn-primary">
+        <button type="button" className="nt-btn-primary" onClick={() => setShowAdd((v) => !v)}>
           Add User
         </button>
         <button
@@ -160,6 +212,35 @@ export default function UsersTable({
           />
         </div>
       </div>
+
+      {showAdd && (
+        <form onSubmit={handleAdd} className="nt-card mb-4 grid gap-3 p-4 sm:grid-cols-4">
+          <input
+            className="nt-input"
+            placeholder="Display name"
+            value={form.displayName}
+            onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+            required
+          />
+          <input
+            className="nt-input"
+            type="email"
+            placeholder="Email"
+            value={form.email}
+            onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+            required
+          />
+          <input
+            className="nt-input"
+            placeholder="License (optional)"
+            value={form.license}
+            onChange={(e) => setForm((f) => ({ ...f, license: e.target.value }))}
+          />
+          <button type="submit" disabled={busy} className="nt-btn-primary">
+            Create
+          </button>
+        </form>
+      )}
 
       {syncMessage && (
         <div className="mb-4 rounded-xl border border-nt-blue/20 bg-nt-blue-soft px-4 py-3 text-sm text-nt-text">
@@ -199,42 +280,71 @@ export default function UsersTable({
                     Licenses <ArrowDownUp size={12} />
                   </button>
                 </th>
-                <th className="px-5 py-3.5 text-right">Actions</th>
+                <th className="px-5 py-3.5">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((user) => (
-                <tr
-                  key={user.id}
-                  className="border-b border-nt-border/80 transition last:border-0 hover:bg-nt-purple-soft/40"
-                >
-                  <td className="px-5 py-3.5">
+                <tr key={user.id} className="border-b border-nt-border/60 last:border-0">
+                  <td className="px-5 py-3">
                     <StatusIcon status={user.status} />
                   </td>
-                  <td className="px-5 py-3.5">
+                  <td className="px-5 py-3">
                     <div className="font-semibold text-nt-text">{user.displayName}</div>
-                    <div className="mt-0.5 text-xs text-nt-text-muted">{user.email}</div>
+                    <div className="text-xs text-nt-text-muted">{user.email}</div>
                   </td>
-                  <td className="px-5 py-3.5 text-nt-text-muted">
-                    {user.licenses.length > 0 ? (
-                      <span className="inline-flex rounded-lg bg-nt-surface-muted px-2.5 py-1 text-xs font-medium text-nt-text ring-1 ring-nt-border">
-                        {user.licenses.join(", ")}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
+                  <td className="px-5 py-3 text-nt-text-muted">
+                    {user.licenses.length > 0 ? user.licenses.join(", ") : "—"}
                   </td>
-                  <td className="px-5 py-3.5 text-right">
-                    <button type="button" className="nt-btn-outline rounded-lg py-1.5 text-xs">
-                      Manage
-                    </button>
+                  <td className="px-5 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      {user.status === "blocked" ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          className="text-xs font-semibold text-nt-success"
+                          onClick={() => void patchUser(user.id, { action: "unblock" })}
+                        >
+                          Unblock
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          className="text-xs font-semibold text-nt-warning"
+                          onClick={() => void patchUser(user.id, { action: "block" })}
+                        >
+                          Block
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="text-xs font-semibold text-nt-purple"
+                        onClick={() => {
+                          const license = window.prompt(
+                            "License SKU name (comma-separated for multiple)",
+                            user.licenses.join(", ")
+                          );
+                          if (license == null) return;
+                          void patchUser(user.id, {
+                            licenses: license
+                              .split(",")
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          });
+                        }}
+                      >
+                        Licenses
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-5 py-12 text-center text-nt-text-muted">
-                    No users match your search.
+                  <td colSpan={4} className="px-5 py-8 text-center text-nt-text-muted">
+                    No users match.
                   </td>
                 </tr>
               )}

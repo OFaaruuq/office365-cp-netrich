@@ -1,16 +1,17 @@
 import {
-  costSummary as baseCost,
   recommendations as baseRecs,
   renewals as baseRenewals,
   subscriptions as baseSubs,
   userRollup as baseRollup,
   users as baseUsers,
-  azureCatalog,
-  dynamics365Catalog,
-  microsoft365Catalog,
-  serverSoftwareCatalog,
 } from "@/lib/mock-data";
 import { findCustomer } from "@/lib/customer-store";
+import { listCatalogProducts } from "@/lib/catalog-store";
+import {
+  listTenantSubscriptions,
+  seedTenantSubscriptionsIfEmpty,
+  type TenantSubscription,
+} from "@/lib/subscription-store";
 import type { CatalogProduct, PortalUser, Subscription } from "@/lib/types";
 
 export type TenantWorkspace = {
@@ -20,7 +21,7 @@ export type TenantWorkspace = {
   users: PortalUser[];
   userRollup: typeof baseRollup;
   subscriptions: Subscription[];
-  costSummary: typeof baseCost;
+  costSummary: { monthly: number; yearly: number; triennially: number };
   renewals: typeof baseRenewals;
   recommendations: typeof baseRecs;
   allowedCatalogs: Array<"microsoft-365" | "dynamics-365" | "azure" | "server-software">;
@@ -84,27 +85,42 @@ export function getTenantWorkspace(customerId: string): TenantWorkspace | null {
   const active = users.filter((u) => u.status === "active").length;
   const blocked = users.filter((u) => u.status === "blocked").length;
 
-  const subscriptions = baseSubs.map((s, idx) => {
-    const purchased = Math.max(
-      customerId === "cust-nile" ? 0 : 1,
-      Math.round(s.purchased * scale)
-    );
-    const used = Math.min(purchased, Math.round(s.used * scale));
+  const generatedSubs = baseSubs
+    .map((s, idx) => {
+      const purchased = Math.max(
+        customerId === "cust-nile" ? 0 : 1,
+        Math.round(s.purchased * scale)
+      );
+      const used = Math.min(purchased, Math.round(s.used * scale));
+      return {
+        ...s,
+        id: `${customerId}-${s.id}`,
+        purchased,
+        used,
+        available: Math.max(0, purchased - used),
+        price: Number((s.price * scale).toFixed(2)),
+        hasAlert: customerId === "cust-amtel" ? s.hasAlert : idx === 1 && customerId === "cust-sigma",
+      };
+    })
+    .filter((s) => s.purchased > 0);
+
+  const seedRows: TenantSubscription[] = generatedSubs.map((s) => {
+    const baseId = s.id.replace(`${customerId}-`, "");
+    const productId =
+      baseId === "sub1" ? "m365-1" : baseId === "sub2" ? "m365-2" : s.skuId || baseId;
     return {
       ...s,
-      id: `${customerId}-${s.id}`,
-      purchased,
-      used,
-      available: Math.max(0, purchased - used),
-      price: Number((s.price * scale).toFixed(2)),
-      // Orbit only keeps first sub “alert” free
-      hasAlert: customerId === "cust-amtel" ? s.hasAlert : idx === 1 && customerId === "cust-sigma",
+      customerId,
+      productId,
+      catalog: "microsoft-365",
+      unitPriceMonthly: s.purchased > 0 ? Number((s.price / s.purchased).toFixed(2)) : s.price,
+      purchasedAt: customer.lastSyncAt || new Date().toISOString(),
+      purchasedBy: "system-seed",
     };
-  }).filter((s) => s.purchased > 0 || customer.status === "active");
+  });
 
-  const monthly = Number(
-    (customer.monthlySpend || subscriptions.reduce((n, s) => n + s.price, 0)).toFixed(2)
-  );
+  const subscriptions = seedTenantSubscriptionsIfEmpty(customerId, seedRows);
+  const monthly = Number(subscriptions.reduce((n, s) => n + s.price, 0).toFixed(2));
 
   // Deterministic per-tenant security metrics (isolated, not global)
   const hash = customerId.split("").reduce((n, ch) => n + ch.charCodeAt(0), 0);
@@ -156,16 +172,16 @@ export function getTenantWorkspace(customerId: string): TenantWorkspace | null {
   };
 }
 
-const CATALOG_MAP = {
-  "microsoft-365": microsoft365Catalog,
-  "dynamics-365": dynamics365Catalog,
-  azure: azureCatalog,
-  "server-software": serverSoftwareCatalog,
-} as const;
+const CATALOG_IDS = [
+  "microsoft-365",
+  "dynamics-365",
+  "azure",
+  "server-software",
+] as const;
 
 export function getAllowedCatalogProducts(
   customerId: string,
-  catalog: keyof typeof CATALOG_MAP
+  catalog: (typeof CATALOG_IDS)[number]
 ): CatalogProduct[] | { error: string; code: string } {
   const workspace = getTenantWorkspace(customerId);
   if (!workspace) {
@@ -177,5 +193,16 @@ export function getAllowedCatalogProducts(
       code: "CATALOG_DENIED",
     };
   }
-  return CATALOG_MAP[catalog];
+
+  const owned = listTenantSubscriptions(customerId);
+  const byProduct = new Map(owned.map((s) => [s.productId, s]));
+
+  return listCatalogProducts({ catalog, activeOnly: true }).map((p) => {
+    const sub = byProduct.get(p.id);
+    return {
+      ...p,
+      status: sub && sub.purchased > 0 ? ("purchased" as const) : ("available" as const),
+      qty: sub?.purchased || 0,
+    };
+  });
 }
