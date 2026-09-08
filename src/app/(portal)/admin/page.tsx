@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { portalFetch } from "@/lib/admin-api";
 import { AdminHero } from "@/components/admin/AdminHero";
 
@@ -27,6 +28,16 @@ export default function Page() {
       <AdminHero
         title="Partner Control Center"
         subtitle="Operational analytics from live tenant subscriptions (Foundation SoR)."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link href="/admin/commerce/quotes" className="nt-btn-on-brand text-xs">
+              Generate quote
+            </Link>
+            <Link href="/admin/billing/invoices" className="nt-btn-on-brand text-xs">
+              Generate invoice
+            </Link>
+          </div>
+        }
       />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((c) => (

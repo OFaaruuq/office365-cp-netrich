@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.data
+.env*
+!.env.production.example
+!.env.example
+npm-debug.log*
+README.md
+docs
+backend/node_modules
+**/*.md
+.cursor
+agent-transcripts
+coverage
+*.tsbuildinfo

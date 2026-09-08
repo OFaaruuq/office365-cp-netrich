@@ -31,6 +31,8 @@ export type AuditAction =
   | "support.create"
   | "users.sync"
   | "commerce.subscribe"
+  | "commerce.quote"
+  | "commerce.invoice"
   | "portal.locked_out";
 
 export type AuditEntry = {

@@ -1,0 +1,116 @@
+# Production stack — netrichtechnologies Microsoft 365 Control Panel
+# Usage:
+#   cp .env.production.example .env.production
+#   # edit secrets, then:
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# UI:  https://office365.cp.netrichtechnologies.com  (publish port 3000 behind reverse proxy)
+# API: http://localhost:8080/health (optional Nest foundation)
+
+name: netrich-office365-prod
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://office365.cp.netrichtechnologies.com}
+        NEXT_PUBLIC_APP_DOMAIN: ${NEXT_PUBLIC_APP_DOMAIN:-office365.cp.netrichtechnologies.com}
+        NEXT_PUBLIC_AZURE_AD_CLIENT_ID: ${NEXT_PUBLIC_AZURE_AD_CLIENT_ID:-}
+        NEXT_PUBLIC_AZURE_AD_AUTHORITY: ${NEXT_PUBLIC_AZURE_AD_AUTHORITY:-https://login.microsoftonline.com/common}
+        NEXT_PUBLIC_CSP_API_URL: ${NEXT_PUBLIC_CSP_API_URL:-}
+    image: netrich-office365-web:latest
+    container_name: nt-office365-web
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://office365.cp.netrichtechnologies.com}
+      NEXT_PUBLIC_APP_DOMAIN: ${NEXT_PUBLIC_APP_DOMAIN:-office365.cp.netrichtechnologies.com}
+      NEXT_PUBLIC_AZURE_AD_CLIENT_ID: ${NEXT_PUBLIC_AZURE_AD_CLIENT_ID:-}
+      NEXT_PUBLIC_AZURE_AD_AUTHORITY: ${NEXT_PUBLIC_AZURE_AD_AUTHORITY:-https://login.microsoftonline.com/common}
+      NEXT_PUBLIC_CSP_API_URL: ${NEXT_PUBLIC_CSP_API_URL:-}
+      CSP_API_URL: ${CSP_API_URL:-http://csp-api:8080}
+      PORTAL_SESSION_SECRET: ${PORTAL_SESSION_SECRET:?PORTAL_SESSION_SECRET is required}
+      ALLOW_DEMO_LOGIN: ${ALLOW_DEMO_LOGIN:-false}
+      DEMO_LOGIN_PASSWORD: ${DEMO_LOGIN_PASSWORD:-}
+      AZURE_AD_CLIENT_SECRET: ${AZURE_AD_CLIENT_SECRET:-}
+      AZURE_AD_TENANT_ID: ${AZURE_AD_TENANT_ID:-}
+    volumes:
+      - nt_office365_data:/app/.data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # Optional Phase-1 foundation API (comment out if UI-only MVP)
+  postgres:
+    profiles: ["backend"]
+    image: postgres:16-alpine
+    container_name: nt-csp-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-netrich}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required when backend profile enabled}
+      POSTGRES_DB: ${POSTGRES_DB:-netrich_csp}
+    volumes:
+      - nt_csp_pg_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    profiles: ["backend"]
+    image: redis:7-alpine
+    container_name: nt-csp-redis-prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  csp-api:
+    profiles: ["backend"]
+    image: node:22-alpine
+    container_name: nt-csp-api-prod
+    working_dir: /app
+    restart: unless-stopped
+    command: sh -c "npm ci && npx prisma generate && npx prisma migrate deploy && npx tsx apps/api/src/main.ts"
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://netrich:${POSTGRES_PASSWORD}@postgres:5432/netrich_csp?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://office365.cp.netrichtechnologies.com}
+      AZURE_AD_TENANT_ID: ${AZURE_AD_TENANT_ID:-common}
+      AZURE_AD_API_AUDIENCE: ${AZURE_AD_API_AUDIENCE:-}
+      AZURE_AD_SPA_CLIENT_ID: ${NEXT_PUBLIC_AZURE_AD_CLIENT_ID:-}
+      PARTNER_CENTER_MODE: ${PARTNER_CENTER_MODE:-sandbox}
+    volumes:
+      - ./backend:/app
+    ports:
+      - "${API_HOST_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  nt_office365_data:
+  nt_csp_pg_prod:

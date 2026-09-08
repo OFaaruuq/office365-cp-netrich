@@ -4,6 +4,8 @@ import { loadCustomers, findCustomer, saveCustomers } from "@/lib/customer-store
 import { writeAudit } from "@/lib/audit-log";
 import {
   computePrice,
+  createPlatformInvoice,
+  createPlatformQuote,
   licenseOptimization,
   loadPlatform,
   partnerReporting,
@@ -557,118 +559,64 @@ export async function POST(
   if (joined === "quotes") {
     const auth = await requirePartnerAdmin(request);
     if ("error" in auth) return auth.error;
-    const customerId = String(body.customerId || "");
-    const customer = findCustomer(customerId);
-    if (!customer) {
-      return NextResponse.json({ error: "Customer required", code: "CUSTOMER_REQUIRED" }, { status: 400 });
-    }
-    const items = Array.isArray(body.items)
-      ? body.items
-          .map((raw: Record<string, unknown>) => ({
-            productId: String(raw.productId || ""),
-            name: String(raw.name || "Line item"),
-            qty: Math.max(1, Number(raw.qty) || 1),
-            unitPrice: Number(raw.unitPrice) || 0,
-          }))
-          .filter((i: { name: string }) => i.name)
-      : [];
-    if (!items.length) {
-      return NextResponse.json({ error: "Add at least one line item", code: "ITEMS_REQUIRED" }, { status: 400 });
-    }
-    const q = {
-      id: `qt-${Date.now().toString(36)}`,
-      customerId,
-      status: "draft" as const,
-      currency: String(body.currency || "USD"),
-      items,
+    const result = createPlatformQuote({
+      customerId: String(body.customerId || ""),
+      currency: body.currency ? String(body.currency) : undefined,
       notes: body.notes ? String(body.notes) : undefined,
       validUntil: body.validUntil ? String(body.validUntil) : undefined,
       createdBy: auth.session.email,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    platform.quotes.unshift(q);
-    savePlatform(platform);
+      items: Array.isArray(body.items) ? body.items : [],
+    });
+    if ("error" in result) {
+      return NextResponse.json(result, { status: 400 });
+    }
+    const customer = findCustomer(result.quote.customerId);
     writeAudit({
-      action: "commerce.subscribe",
+      action: "commerce.quote",
       actorAccountId: auth.session.accountId,
       actorEmail: auth.session.email,
       actorRole: auth.session.role,
-      customerId,
-      detail: `Generated quote ${q.id} for ${customer.name} (${items.length} line item(s))`,
-      meta: { quoteId: q.id },
+      customerId: result.quote.customerId,
+      detail: `Generated quote ${result.quote.id} for ${customer?.name || result.quote.customerId} (${result.quote.items.length} line item(s))`,
+      meta: { quoteId: result.quote.id },
       riskLevel: "low",
     });
-    return NextResponse.json({ quote: q, source: "local" });
+    return NextResponse.json({ quote: result.quote, source: "local" });
   }
 
   if (joined === "invoices") {
     const auth = await requirePartnerAdmin(request);
     if ("error" in auth) return auth.error;
-    const customerId = String(body.customerId || "");
-    const customer = findCustomer(customerId);
-    if (!customer) {
-      return NextResponse.json({ error: "Customer required", code: "CUSTOMER_REQUIRED" }, { status: 400 });
-    }
-    const items = Array.isArray(body.items)
-      ? body.items
-          .map((raw: Record<string, unknown>) => ({
-            productId: raw.productId ? String(raw.productId) : undefined,
-            name: String(raw.name || "Line item"),
-            qty: Math.max(1, Number(raw.qty) || 1),
-            unitPrice: Number(raw.unitPrice) || 0,
-          }))
-          .filter((i: { name: string }) => i.name)
-      : [];
-    if (!items.length) {
-      return NextResponse.json({ error: "Add at least one line item", code: "ITEMS_REQUIRED" }, { status: 400 });
-    }
-    const subtotal = Number(
-      items.reduce((s: number, i: { qty: number; unitPrice: number }) => s + i.qty * i.unitPrice, 0).toFixed(2)
-    );
-    const microsoftCost = Number(body.microsoftCost ?? Number((subtotal * 0.82).toFixed(2)));
-    const netrichMarkup = Number(body.netrichMarkup ?? Number((subtotal - microsoftCost).toFixed(2)));
-    const taxRate = Number(body.taxRate ?? 5);
-    const tax = Number(body.tax ?? Number(((subtotal * taxRate) / 100).toFixed(2)));
-    const total = Number((subtotal + tax).toFixed(2));
-    const inv = {
-      id: `inv-${Date.now().toString(36)}`,
-      customerId,
-      customerName: customer.name,
+    const result = createPlatformInvoice({
+      customerId: String(body.customerId || ""),
+      currency: body.currency ? String(body.currency) : undefined,
+      period: body.period ? String(body.period) : undefined,
       quoteId: body.quoteId ? String(body.quoteId) : undefined,
       orderId: body.orderId ? String(body.orderId) : undefined,
-      period: String(body.period || new Date().toISOString().slice(0, 7)),
-      currency: String(body.currency || "USD"),
-      items,
-      microsoftCost,
-      netrichMarkup,
-      taxRate,
-      tax,
-      subtotal,
-      total,
-      status: (body.status as "draft" | "sent" | "open") || "draft",
       notes: body.notes ? String(body.notes) : undefined,
-      dueAt: body.dueAt
-        ? String(body.dueAt)
-        : new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+      dueAt: body.dueAt ? String(body.dueAt) : undefined,
+      status: body.status || "draft",
+      microsoftCost: body.microsoftCost != null ? Number(body.microsoftCost) : undefined,
+      netrichMarkup: body.netrichMarkup != null ? Number(body.netrichMarkup) : undefined,
+      taxRate: body.taxRate != null ? Number(body.taxRate) : undefined,
+      tax: body.tax != null ? Number(body.tax) : undefined,
       createdBy: auth.session.email,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    if (!platform.invoices) platform.invoices = [];
-    platform.invoices.unshift(inv);
-    savePlatform(platform);
+      items: Array.isArray(body.items) ? body.items : [],
+    });
+    if ("error" in result) {
+      return NextResponse.json(result, { status: 400 });
+    }
     writeAudit({
-      action: "commerce.subscribe",
+      action: "commerce.invoice",
       actorAccountId: auth.session.accountId,
       actorEmail: auth.session.email,
       actorRole: auth.session.role,
-      customerId,
-      detail: `Generated invoice ${inv.id} for ${customer.name} ($${total.toFixed(2)})`,
-      meta: { invoiceId: inv.id, total },
+      customerId: result.invoice.customerId,
+      detail: `Generated invoice ${result.invoice.id} for ${result.invoice.customerName} ($${result.invoice.total.toFixed(2)})`,
+      meta: { invoiceId: result.invoice.id, total: result.invoice.total },
       riskLevel: "medium",
     });
-    return NextResponse.json({ invoice: inv, source: "local" });
+    return NextResponse.json({ invoice: result.invoice, source: "local" });
   }
 
   if (joined === "jobs/retry") {

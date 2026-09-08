@@ -87,6 +87,40 @@ export default function PartnerOrdersPage() {
     }
   }
 
+  async function invoiceFromOrder(o: PurchaseOrder) {
+    setBusyId(o.id);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await portalFetch("/api/csp/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: o.customerId,
+          orderId: o.id,
+          currency: "USD",
+          notes: `Generated from purchase order ${o.id}`,
+          status: "draft",
+          items: [
+            {
+              name: o.productName,
+              qty: o.quantity,
+              unitPrice: o.unitPrice,
+            },
+          ],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to generate invoice");
+        return;
+      }
+      setMessage(`Invoice ${data.invoice.id} drafted — open Billing → Invoices`);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const visible = orders.filter((o) => {
     if (filter === "all") return true;
     if (filter === "AWAITING_PAYMENT") {
@@ -101,9 +135,14 @@ export default function PartnerOrdersPage() {
         title="Purchase orders"
         subtitle="Client catalog requests. Approve to unlock payment; licenses issue only after the client pays in full."
         actions={
-          <Link href="/admin/commerce/quotes" className="nt-btn-on-brand text-xs">
-            Quotes
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/admin/commerce/quotes" className="nt-btn-on-brand text-xs">
+              Quotes
+            </Link>
+            <Link href="/admin/billing/invoices" className="nt-btn-on-brand text-xs">
+              Invoices
+            </Link>
+          </div>
         }
       />
 
@@ -133,7 +172,12 @@ export default function PartnerOrdersPage() {
 
       {message && (
         <div className="mb-4 rounded-lg border border-nt-success/30 bg-nt-success/10 px-4 py-3 text-sm text-nt-success">
-          {message}
+          {message}{" "}
+          {message.includes("Invoice") && (
+            <Link href="/admin/billing/invoices" className="underline">
+              View invoices
+            </Link>
+          )}
         </div>
       )}
       {error && (
@@ -185,6 +229,21 @@ export default function PartnerOrdersPage() {
                   onClick={() => void decide(o.id, "reject")}
                 >
                   Reject
+                </button>
+              </div>
+            )}
+            {(o.status === "AWAITING_PAYMENT" ||
+              o.status === "APPROVED" ||
+              o.status === "PAID" ||
+              o.status === "FULFILLED") && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="nt-btn-outline text-xs"
+                  disabled={busyId === o.id}
+                  onClick={() => void invoiceFromOrder(o)}
+                >
+                  Generate invoice
                 </button>
               </div>
             )}

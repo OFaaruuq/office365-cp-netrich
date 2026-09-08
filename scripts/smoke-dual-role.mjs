@@ -72,6 +72,7 @@ const CLIENT_PAGES = [
   "/catalog/dynamics-365",
   "/catalog/server-software",
   "/catalog/azure",
+  "/workspace/orders",
   "/workspace/renewals",
   "/workspace/billing",
   "/solutions/security",
@@ -233,12 +234,15 @@ async function main() {
     const apiFails = await checkApis(PARTNER.label, j, [
       { path: "/api/csp/reporting", expect: (s, b) => s === 200 && typeof b.customers === "number" },
       { path: "/api/csp/customers", expect: (s, b) => s === 200 && Array.isArray(b.customers) },
+      { path: "/api/csp/quotes", expect: (s, b) => s === 200 && Array.isArray(b.quotes) },
+      { path: "/api/csp/invoices", expect: (s, b) => s === 200 && Array.isArray(b.invoices) },
       { path: "/api/csp/orders", expect: (s, b) => s === 200 && Array.isArray(b.orders) },
       { path: "/api/csp/subscriptions", expect: (s, b) => s === 200 && Array.isArray(b.subscriptions) },
       { path: "/api/csp/approvals", expect: (s, b) => s === 200 && Array.isArray(b.approvals) },
       { path: "/api/csp/jobs", expect: (s, b) => s === 200 && Array.isArray(b.jobs) },
       { path: "/api/csp/gdap", expect: (s, b) => s === 200 },
       { path: "/api/admin/customers", expect: (s, b) => s === 200 && Array.isArray(b.customers) },
+      { path: "/api/admin/catalog", expect: (s, b) => s === 200 && Array.isArray(b.products) },
       {
         path: "/api/me/workspace?customerId=cust-amtel",
         expect: (s, b) => s === 200 && b.workspace?.customerId === "cust-amtel",
@@ -252,6 +256,48 @@ async function main() {
         expect: (s, b) => s === 200 && b.security,
       },
       { path: "/api/csp/notifications", expect: (s, b) => s === 200 && Array.isArray(b.notifications) },
+      {
+        path: "/api/csp/quotes",
+        init: {
+          method: "POST",
+          body: JSON.stringify({
+            customerId: "cust-amtel",
+            currency: "USD",
+            notes: "Smoke quote",
+            items: [
+              {
+                productId: "m365-business-premium",
+                name: "Microsoft 365 Business Premium",
+                qty: 5,
+                unitPrice: 19.25,
+              },
+            ],
+          }),
+        },
+        expect: (s, b) => s === 200 && b.quote?.id && b.quote.status === "draft",
+      },
+      {
+        path: "/api/csp/invoices",
+        init: {
+          method: "POST",
+          body: JSON.stringify({
+            customerId: "cust-amtel",
+            period: new Date().toISOString().slice(0, 7),
+            currency: "USD",
+            taxRate: 5,
+            notes: "Smoke invoice",
+            items: [
+              {
+                productId: "m365-business-premium",
+                name: "Microsoft 365 Business Premium",
+                qty: 5,
+                unitPrice: 19.25,
+              },
+            ],
+          }),
+        },
+        expect: (s, b) => s === 200 && b.invoice?.id && typeof b.invoice.total === "number",
+      },
     ]);
     report.roles.partner = {
       user: { email: user.email, role: user.role },

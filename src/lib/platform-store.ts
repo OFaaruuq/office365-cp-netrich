@@ -5,7 +5,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 import path from "path";
 import { createHash, randomBytes } from "crypto";
-import { loadCustomers } from "@/lib/customer-store";
+import { findCustomer, loadCustomers } from "@/lib/customer-store";
 import { listTenantSubscriptions } from "@/lib/subscription-store";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
@@ -507,8 +507,122 @@ export function loadPlatform(): PlatformFile {
   }
 }
 
+export type PlatformQuote = PlatformFile["quotes"][number];
+export type PlatformInvoice = PlatformFile["invoices"][number];
+
 export function savePlatform(data: PlatformFile) {
   atomicWrite(FILE, JSON.stringify(data, null, 2));
+}
+
+export function createPlatformQuote(input: {
+  customerId: string;
+  currency?: string;
+  items: Array<{ productId?: string; name: string; qty: number; unitPrice: number }>;
+  notes?: string;
+  validUntil?: string;
+  createdBy: string;
+}): { quote: PlatformQuote } | { error: string; code: string } {
+  const customer = findCustomer(input.customerId);
+  if (!customer) return { error: "Customer required", code: "CUSTOMER_REQUIRED" };
+  const items = (input.items || [])
+    .map((raw) => ({
+      productId: String(raw.productId || ""),
+      name: String(raw.name || "").trim() || "Line item",
+      qty: Math.max(1, Number(raw.qty) || 1),
+      unitPrice: Math.max(0, Number(raw.unitPrice) || 0),
+    }))
+    .filter((i) => i.name);
+  if (!items.length) return { error: "Add at least one line item", code: "ITEMS_REQUIRED" };
+
+  const now = new Date().toISOString();
+  const quote: PlatformQuote = {
+    id: `qt-${Date.now().toString(36)}`,
+    customerId: input.customerId,
+    status: "draft",
+    currency: input.currency || "USD",
+    items,
+    notes: input.notes || undefined,
+    validUntil: input.validUntil || undefined,
+    createdBy: input.createdBy,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const platform = loadPlatform();
+  platform.quotes.unshift(quote);
+  savePlatform(platform);
+  return { quote };
+}
+
+export function createPlatformInvoice(input: {
+  customerId: string;
+  currency?: string;
+  period?: string;
+  items: Array<{ productId?: string; name: string; qty: number; unitPrice: number }>;
+  microsoftCost?: number;
+  netrichMarkup?: number;
+  taxRate?: number;
+  tax?: number;
+  quoteId?: string;
+  orderId?: string;
+  notes?: string;
+  dueAt?: string;
+  status?: PlatformInvoice["status"];
+  createdBy: string;
+}): { invoice: PlatformInvoice } | { error: string; code: string } {
+  const customer = findCustomer(input.customerId);
+  if (!customer) return { error: "Customer required", code: "CUSTOMER_REQUIRED" };
+  const items = (input.items || [])
+    .map((raw) => ({
+      productId: raw.productId ? String(raw.productId) : undefined,
+      name: String(raw.name || "").trim() || "Line item",
+      qty: Math.max(1, Number(raw.qty) || 1),
+      unitPrice: Math.max(0, Number(raw.unitPrice) || 0),
+    }))
+    .filter((i) => i.name);
+  if (!items.length) return { error: "Add at least one line item", code: "ITEMS_REQUIRED" };
+
+  const subtotal = Number(
+    items.reduce((s, i) => s + i.qty * i.unitPrice, 0).toFixed(2)
+  );
+  const microsoftCost = Number(
+    input.microsoftCost ?? Number((subtotal * 0.82).toFixed(2))
+  );
+  const netrichMarkup = Number(
+    input.netrichMarkup ?? Number((subtotal - microsoftCost).toFixed(2))
+  );
+  const taxRate = Number(input.taxRate ?? 5);
+  const tax = Number(input.tax ?? Number(((subtotal * taxRate) / 100).toFixed(2)));
+  const total = Number((subtotal + tax).toFixed(2));
+  const now = new Date().toISOString();
+
+  const invoice: PlatformInvoice = {
+    id: `inv-${Date.now().toString(36)}`,
+    customerId: input.customerId,
+    customerName: customer.name,
+    quoteId: input.quoteId,
+    orderId: input.orderId,
+    period: input.period || now.slice(0, 7),
+    currency: input.currency || "USD",
+    items,
+    microsoftCost,
+    netrichMarkup,
+    taxRate,
+    tax,
+    subtotal,
+    total,
+    status: input.status || "draft",
+    notes: input.notes,
+    dueAt: input.dueAt || new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+    createdBy: input.createdBy,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const platform = loadPlatform();
+  if (!platform.invoices) platform.invoices = [];
+  platform.invoices.unshift(invoice);
+  savePlatform(platform);
+  return { invoice };
 }
 
 export function computePrice(productId: string, customerId?: string) {

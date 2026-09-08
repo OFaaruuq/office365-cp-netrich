@@ -14,6 +14,7 @@ Multi-tenant CSP control panel for **netrichtechnologies**.
 
 | Document | Description |
 |----------|-------------|
+| **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** | Production deploy (Docker / Node) |
 | **[docs/DOCUMENTATION.md](./docs/DOCUMENTATION.md)** | Full system doc — modules, APIs, stores, security |
 | **[docs/CSP_PRODUCTION_ARCHITECTURE.md](./docs/CSP_PRODUCTION_ARCHITECTURE.md)** | CSP target architecture (SAM, GDAP, NCE, stages) |
 | **[docs/MULTI_TENANT.md](./docs/MULTI_TENANT.md)** | Isolation policy, terminate lifecycle, try-it |
@@ -102,6 +103,9 @@ NEXT_PUBLIC_AZURE_AD_AUTHORITY=https://login.microsoftonline.com/common
 | `npm run build` | Production build |
 | `npm start` | Run production UI |
 | `npm run lint` | ESLint |
+| `npm run deploy:check` | Validate `.env.production` |
+| `npm run deploy:docker` | Production Docker deploy (UI) |
+| `npm run deploy:prod` | Check + Docker production deploy |
 
 ## Brand
 

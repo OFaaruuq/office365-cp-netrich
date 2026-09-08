@@ -265,12 +265,18 @@ export default function Page() {
             <div className="mb-2 text-xs font-bold uppercase tracking-wide text-nt-text-subtle">
               Line items
             </div>
+            {customers.length === 0 && (
+              <p className="mb-2 text-xs text-nt-danger">
+                No customers available. Create/approve a tenant first.
+              </p>
+            )}
             <div className="grid gap-2 sm:grid-cols-4">
               <select
                 className="nt-input sm:col-span-2"
                 value={productId}
                 onChange={(e) => onPickProduct(e.target.value)}
               >
+                {products.length === 0 && <option value="">No catalog products</option>}
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} (${p.priceMonthly.toFixed(2)})
@@ -295,9 +301,30 @@ export default function Page() {
                 placeholder="Unit price"
               />
             </div>
-            <button type="button" className="nt-btn-outline mt-2 text-xs" onClick={addLine}>
-              Add line
-            </button>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className="nt-btn-outline text-xs" onClick={addLine} disabled={!productId && products.length === 0}>
+                Add catalog line
+              </button>
+              <button
+                type="button"
+                className="nt-btn-outline text-xs"
+                onClick={() => {
+                  const name = window.prompt("Custom line item name");
+                  if (!name?.trim()) return;
+                  setItems((prev) => [
+                    ...prev,
+                    {
+                      productId: `custom-${Date.now().toString(36)}`,
+                      name: name.trim(),
+                      qty: Math.max(1, qty),
+                      unitPrice: Number(unitPrice) || 0,
+                    },
+                  ]);
+                }}
+              >
+                Add custom line
+              </button>
+            </div>
             <ul className="mt-3 space-y-1 text-sm">
               {items.map((i, idx) => (
                 <li key={`${i.productId}-${idx}`} className="flex items-center justify-between gap-2">
