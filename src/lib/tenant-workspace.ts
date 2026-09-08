@@ -166,7 +166,9 @@ export function getTenantWorkspace(customerId: string): TenantWorkspace | null {
       ...r,
       id: `${customerId}-${r.id}`,
     })),
-    allowedCatalogs: customer.config?.allowedCatalogs || ["microsoft-365"],
+    allowedCatalogs: customer.config?.allowedCatalogs?.length
+      ? customer.config.allowedCatalogs
+      : ["microsoft-365", "dynamics-365", "azure", "server-software"],
     securityPosture,
     solutions,
   };
@@ -179,6 +181,9 @@ const CATALOG_IDS = [
   "server-software",
 ] as const;
 
+/** All product catalogs are visible to every active client tenant. */
+export const ALL_PRODUCT_CATALOGS = CATALOG_IDS;
+
 export function getAllowedCatalogProducts(
   customerId: string,
   catalog: (typeof CATALOG_IDS)[number]
@@ -186,12 +191,6 @@ export function getAllowedCatalogProducts(
   const workspace = getTenantWorkspace(customerId);
   if (!workspace) {
     return { error: "Tenant not found", code: "TENANT_NOT_FOUND" };
-  }
-  if (!workspace.allowedCatalogs.includes(catalog)) {
-    return {
-      error: "This catalog is not enabled for your tenant. Contact netrichtechnologies Super Admin.",
-      code: "CATALOG_DENIED",
-    };
   }
 
   const owned = listTenantSubscriptions(customerId);

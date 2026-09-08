@@ -4,11 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { portalFetch } from "@/lib/admin-api";
 import { AdminHero } from "@/components/admin/AdminHero";
+import { useSession } from "@/components/auth/SessionProvider";
 
 type PurchaseOrder = {
   id: string;
-  customerId: string;
-  customerName: string;
   productName: string;
   catalog: string;
   quantity: number;
@@ -16,7 +15,6 @@ type PurchaseOrder = {
   unitPrice: number;
   total: number;
   status: string;
-  requestedBy: string;
   requestedAt: string;
   approvedAt?: string;
   paidAt?: string;
@@ -27,20 +25,18 @@ type PurchaseOrder = {
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  REQUESTED: "Awaiting your approval",
-  AWAITING_PAYMENT: "Approved — awaiting payment",
-  APPROVED: "Approved — awaiting payment",
+  REQUESTED: "Awaiting approval",
+  AWAITING_PAYMENT: "Payment required",
+  APPROVED: "Payment required",
   PAID: "Paid",
   FULFILLED: "Licenses issued",
   REJECTED: "Rejected",
   CANCELLED: "Cancelled",
 };
 
-export default function PartnerOrdersPage() {
+export default function ClientOrdersPage() {
+  const { isClient, ready } = useSession();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
-  const [filter, setFilter] = useState<"all" | "REQUESTED" | "AWAITING_PAYMENT" | "FULFILLED">(
-    "all"
-  );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,23 +53,18 @@ export default function PartnerOrdersPage() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (ready && isClient) void load();
+  }, [ready, isClient, load]);
 
-  async function decide(id: string, action: "approve" | "reject") {
+  async function act(id: string, action: "pay" | "cancel") {
     setBusyId(id);
     setMessage(null);
     setError(null);
     try {
-      const body: Record<string, string> = { id, action };
-      if (action === "reject") {
-        const reason = window.prompt("Rejection reason (optional)") || "";
-        if (reason) body.reason = reason;
-      }
       const res = await portalFetch("/api/commerce/orders", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ id, action }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -87,49 +78,33 @@ export default function PartnerOrdersPage() {
     }
   }
 
-  const visible = orders.filter((o) => {
-    if (filter === "all") return true;
-    if (filter === "AWAITING_PAYMENT") {
-      return o.status === "AWAITING_PAYMENT" || o.status === "APPROVED";
-    }
-    return o.status === filter;
-  });
+  if (!ready) {
+    return <div className="text-sm text-nt-text-muted">Loading…</div>;
+  }
+
+  if (!isClient) {
+    return (
+      <div className="nt-card p-6 text-sm text-nt-text-muted">
+        Orders for client tenants. Partners use{" "}
+        <Link href="/admin/commerce/orders" className="text-nt-purple underline">
+          Commerce → Orders
+        </Link>
+        .
+      </div>
+    );
+  }
 
   return (
     <div className="nt-fade-in">
       <AdminHero
-        title="Purchase orders"
-        subtitle="Client catalog requests. Approve to unlock payment; licenses issue only after the client pays in full."
+        title="Orders"
+        subtitle="Request → Super Admin approval → full payment → licenses. Browse catalogs to submit a new order."
         actions={
-          <Link href="/admin/commerce/quotes" className="nt-btn-on-brand text-xs">
-            Quotes
+          <Link href="/catalog/microsoft-365" className="nt-btn-on-brand text-xs">
+            Browse catalogs
           </Link>
         }
       />
-
-      <div className="mb-4 flex flex-wrap gap-2">
-        {(
-          [
-            ["all", "All"],
-            ["REQUESTED", "Pending approval"],
-            ["AWAITING_PAYMENT", "Awaiting payment"],
-            ["FULFILLED", "Fulfilled"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setFilter(id)}
-            className={
-              filter === id
-                ? "rounded-full bg-nt-purple px-3 py-1.5 text-xs font-semibold text-white"
-                : "rounded-full bg-nt-surface-muted px-3 py-1.5 text-xs font-medium text-nt-text-muted"
-            }
-          >
-            {label}
-          </button>
-        ))}
-      </div>
 
       {message && (
         <div className="mb-4 rounded-lg border border-nt-success/30 bg-nt-success/10 px-4 py-3 text-sm text-nt-success">
@@ -142,23 +117,24 @@ export default function PartnerOrdersPage() {
         </div>
       )}
 
-      <div className="space-y-2">
-        {visible.map((o) => (
+      <div className="space-y-3">
+        {orders.map((o) => (
           <div key={o.id} className="nt-card p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="font-semibold">{o.productName}</div>
                 <div className="mt-1 text-xs text-nt-text-muted">
-                  {o.customerName} · {o.catalog} · {o.quantity} × ${o.unitPrice.toFixed(2)} ·{" "}
-                  {o.billingCycle}
+                  {o.catalog} · {o.quantity} seat(s) · {o.billingCycle} · {o.id}
                 </div>
                 <div className="mt-1 text-xs text-nt-text-subtle">
-                  {o.id} · by {o.requestedBy} · {o.requestedAt.slice(0, 16).replace("T", " ")}
+                  Requested {o.requestedAt.slice(0, 16).replace("T", " ")}
+                  {o.fulfilledAt ? ` · Fulfilled ${o.fulfilledAt.slice(0, 10)}` : ""}
                 </div>
-                {o.subscriptionId && (
-                  <div className="mt-1 text-xs text-nt-success">
-                    Subscription {o.subscriptionId}
-                  </div>
+                {o.rejectReason && (
+                  <div className="mt-1 text-xs text-nt-danger">{o.rejectReason}</div>
+                )}
+                {o.paymentRef && (
+                  <div className="mt-1 text-xs text-nt-text-muted">Payment ref: {o.paymentRef}</div>
                 )}
               </div>
               <div className="text-right">
@@ -168,31 +144,38 @@ export default function PartnerOrdersPage() {
                 </span>
               </div>
             </div>
-            {o.status === "REQUESTED" && (
-              <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(o.status === "AWAITING_PAYMENT" || o.status === "APPROVED") && (
                 <button
                   type="button"
                   className="nt-btn-primary text-xs"
                   disabled={busyId === o.id}
-                  onClick={() => void decide(o.id, "approve")}
+                  onClick={() => void act(o.id, "pay")}
                 >
-                  {busyId === o.id ? "Working…" : "Approve (await payment)"}
+                  {busyId === o.id ? "Processing…" : "Pay in full & get licenses"}
                 </button>
+              )}
+              {o.status === "REQUESTED" && (
                 <button
                   type="button"
                   className="nt-btn-outline text-xs"
                   disabled={busyId === o.id}
-                  onClick={() => void decide(o.id, "reject")}
+                  onClick={() => void act(o.id, "cancel")}
                 >
-                  Reject
+                  Cancel request
                 </button>
-              </div>
-            )}
+              )}
+              {o.status === "FULFILLED" && (
+                <Link href="/products" className="nt-btn-outline text-xs">
+                  View subscriptions
+                </Link>
+              )}
+            </div>
           </div>
         ))}
-        {visible.length === 0 && (
+        {orders.length === 0 && (
           <div className="nt-card p-6 text-sm text-nt-text-muted">
-            No purchase orders in this filter. Clients submit requests from product catalogs.
+            No orders yet. Open a product catalog and click <strong>Request purchase</strong>.
           </div>
         )}
       </div>

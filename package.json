@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "superadmin:password": "node scripts/set-superadmin-password.mjs",
+    "superadmin:password:generate": "node scripts/set-superadmin-password.mjs --generate --reset-mfa",
+    "superadmin:password:clear": "node scripts/set-superadmin-password.mjs --clear",
     "backend:install": "npm install --prefix backend",
     "backend:api": "npm run dev:api --prefix backend",
     "backend:worker": "npm run dev:worker --prefix backend"

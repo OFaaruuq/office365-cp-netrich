@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireClientTenant, resolveTenantScope } from "@/lib/auth/guards";
 import { findCustomer } from "@/lib/customer-store";
-import { getCatalogProduct } from "@/lib/catalog-store";
-import {
-  changeSubscriptionSeats,
-  listTenantSubscriptions,
-  subscribeProduct,
-} from "@/lib/subscription-store";
+import { changeSubscriptionSeats, listTenantSubscriptions } from "@/lib/subscription-store";
 import { writeAudit } from "@/lib/audit-log";
+import { createPurchaseRequest } from "@/lib/purchase-store";
+import { loadPlatform, savePlatform } from "@/lib/platform-store";
 
 /** List this tenant's subscriptions (isolated) */
 export async function GET(request: NextRequest) {
@@ -23,8 +20,9 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Client tenant purchase / subscribe.
- * Body: { productId, quantity, billingCycle }
+ * Client purchase request (compat path).
+ * Immediate subscribe is disabled — licenses only after partner approval + full payment.
+ * Prefer POST /api/commerce/orders.
  */
 export async function POST(request: NextRequest) {
   const client = await requireClientTenant(request);
@@ -41,42 +39,9 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const productId = String(body.productId || "");
   const quantity = Number(body.quantity || 0);
-  const billingCycle = (body.billingCycle || "Monthly") as
-    | "Monthly"
-    | "Annual"
-    | "Triennial";
+  const billingCycle = (body.billingCycle || "Monthly") as "Monthly" | "Annual" | "Triennial";
 
-  const idemKey =
-    request.headers.get("idempotency-key") ||
-    (typeof body.idempotencyKey === "string" ? body.idempotencyKey : "");
-  if (idemKey) {
-    const { idempotencyGet, idempotencyPut } = await import("@/lib/platform-store");
-    const existing = idempotencyGet(idemKey, "commerce.subscribe");
-    if (existing) {
-      return NextResponse.json(existing.responseBody, { status: existing.responseCode });
-    }
-  }
-
-  const product = getCatalogProduct(productId);
-  if (!product || !product.active) {
-    return NextResponse.json(
-      { error: "Product not available.", code: "PRODUCT_UNAVAILABLE" },
-      { status: 404 }
-    );
-  }
-
-  const allowed = customer.config.allowedCatalogs || [];
-  if (!allowed.includes(product.catalog)) {
-    return NextResponse.json(
-      {
-        error: "This catalog is not enabled for your tenant. Contact Super Admin.",
-        code: "CATALOG_DENIED",
-      },
-      { status: 403 }
-    );
-  }
-
-  const result = subscribeProduct({
+  const result = createPurchaseRequest({
     customerId: client.customerId,
     productId,
     quantity,
@@ -88,48 +53,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result, { status: 400 });
   }
 
+  const platform = loadPlatform();
+  platform.notifications.unshift({
+    id: `ntf-po-${result.order.id}`,
+    type: "commerce.purchase_request",
+    severity: "info",
+    title: "New purchase request",
+    message: `${result.order.customerName} requested ${result.order.quantity} × ${result.order.productName}`,
+    actionUrl: "/admin/commerce/orders",
+    createdAt: new Date().toISOString(),
+  });
+  platform.approvals.unshift({
+    id: `apr-${result.order.id}`,
+    operation: "commerce.purchase_approve",
+    customerId: result.order.customerId,
+    requesterEmail: client.session.email,
+    status: "pending",
+    payload: { purchaseOrderId: result.order.id },
+    createdAt: new Date().toISOString(),
+  });
+  savePlatform(platform);
+
   writeAudit({
     action: "commerce.subscribe",
     actorAccountId: client.session.accountId,
     actorEmail: client.session.email,
     actorRole: client.session.role,
     customerId: client.customerId,
-    detail: `Subscribed ${quantity} × ${product.name} (${billingCycle})`,
+    detail: `Purchase requested via subscribe compat: ${quantity} × ${result.order.productName}`,
     meta: {
+      purchaseOrderId: result.order.id,
       productId,
       quantity,
       billingCycle,
-      subscriptionId: result.subscription.id,
+      total: result.order.total,
     },
     riskLevel: "medium",
-    requestId: idemKey || undefined,
   });
 
-  const payload = {
+  return NextResponse.json({
     ok: true,
-    subscription: result.subscription,
-    message: `Subscribed ${quantity} seat(s) of ${product.name}.`,
-  };
-
-  if (idemKey) {
-    const { idempotencyPut } = await import("@/lib/platform-store");
-    const put = idempotencyPut({
-      key: idemKey,
-      customerId: client.customerId,
-      operation: "commerce.subscribe",
-      body: { productId, quantity, billingCycle },
-      responseCode: 200,
-      responseBody: payload,
-    });
-    if ("conflict" in put && put.conflict) {
-      return NextResponse.json(
-        { error: "Idempotency-Key reused with different payload", code: "IDEMPOTENCY_CONFLICT" },
-        { status: 409 }
-      );
-    }
-  }
-
-  return NextResponse.json(payload);
+    order: result.order,
+    message: `Order submitted for ${result.order.productName}. Licenses are issued after Super Admin approval and full payment.`,
+    code: "AWAITING_APPROVAL",
+  });
 }
 
 /** Change seats on an existing subscription */

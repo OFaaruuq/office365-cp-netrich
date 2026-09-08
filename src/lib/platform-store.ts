@@ -63,6 +63,32 @@ export type PlatformFile = {
     status: "draft" | "sent" | "approved" | "rejected" | "ordered";
     currency: string;
     items: Array<{ productId: string; name: string; qty: number; unitPrice: number }>;
+    notes?: string;
+    validUntil?: string;
+    createdBy?: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  invoices: Array<{
+    id: string;
+    customerId: string;
+    customerName: string;
+    quoteId?: string;
+    orderId?: string;
+    period: string;
+    currency: string;
+    items: Array<{ productId?: string; name: string; qty: number; unitPrice: number }>;
+    microsoftCost: number;
+    netrichMarkup: number;
+    taxRate: number;
+    tax: number;
+    subtotal: number;
+    total: number;
+    status: "draft" | "sent" | "open" | "paid" | "void";
+    notes?: string;
+    dueAt?: string;
+    paidAt?: string;
+    createdBy: string;
     createdAt: string;
     updatedAt: string;
   }>;
@@ -194,6 +220,7 @@ function empty(): PlatformFile {
     priceLists: [],
     customerPriceRules: [],
     quotes: [],
+    invoices: [],
     orders: [],
     jobs: [],
     notifications: [],
@@ -401,6 +428,41 @@ function ensureSeed(data: PlatformFile): PlatformFile {
           unitPrice: 19.25,
         },
       ],
+      notes: "Demo quote",
+      createdBy: "admin@netrichtechnologies.com",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  if (!Array.isArray(base.invoices)) base.invoices = [];
+  if (!base.invoices.length && customers[0]) {
+    const period = new Date().toISOString().slice(0, 7);
+    base.invoices.push({
+      id: "inv-demo-1",
+      customerId: customers[0].id,
+      customerName: customers[0].name,
+      quoteId: "qt-demo-1",
+      period,
+      currency: "USD",
+      items: [
+        {
+          productId: "m365-business-premium",
+          name: "Microsoft 365 Business Premium",
+          qty: 25,
+          unitPrice: 19.25,
+        },
+      ],
+      microsoftCost: 400,
+      netrichMarkup: 81.25,
+      taxRate: 5,
+      tax: 24.06,
+      subtotal: 481.25,
+      total: 505.31,
+      status: "open",
+      notes: "Demo invoice",
+      dueAt: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+      createdBy: "admin@netrichtechnologies.com",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });

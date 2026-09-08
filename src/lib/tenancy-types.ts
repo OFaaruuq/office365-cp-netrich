@@ -30,7 +30,7 @@ export interface ClientTenantConfig {
   syncEnabled: boolean;
   /** GDAP / partner relationship configured */
   gdapEnabled: boolean;
-  /** Catalogs the client may purchase */
+  /** Catalogs the client may purchase — all catalogs are browsable; kept for admin UX / legacy */
   allowedCatalogs: Array<"microsoft-365" | "dynamics-365" | "azure" | "server-software">;
   billingContactEmail: string;
   technicalContactEmail: string;

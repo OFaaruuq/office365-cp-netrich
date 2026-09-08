@@ -26,11 +26,10 @@ import {
   Receipt,
   Layers,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import clsx from "clsx";
 import { useSession } from "@/components/auth/SessionProvider";
 import { useNav } from "@/components/layout/NavProvider";
-import { portalFetch } from "@/lib/admin-api";
 
 function NavLink({
   href,
@@ -102,40 +101,16 @@ export default function Sidebar() {
     billing: true,
     microsoft: true,
     security: true,
-    support: true,
+    supportPartner: true,
     platform: true,
     m365: true,
     products: true,
-    custBilling: false,
+    custBilling: true,
     custSecurity: true,
-    account: false,
+    supportWorkspace: true,
+    account: true,
   });
-  const [allowedCatalogs, setAllowedCatalogs] = useState<string[] | null>(null);
-
-  useEffect(() => {
-    if (!isClient || !user?.customerId) {
-      setAllowedCatalogs(null);
-      return;
-    }
-    let cancelled = false;
-    void portalFetch("/api/me/tenant")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) setAllowedCatalogs(data.tenant?.allowedCatalogs || ["microsoft-365"]);
-      })
-      .catch(() => {
-        if (!cancelled) setAllowedCatalogs(["microsoft-365"]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isClient, user?.customerId]);
-
-  const catalogs = useMemo(() => {
-    if (isPartner || !isClient) return [...ALL_CATALOGS];
-    const allowed = allowedCatalogs || ["microsoft-365"];
-    return ALL_CATALOGS.filter((c) => allowed.includes(c.id));
-  }, [isPartner, isClient, allowedCatalogs]);
+  const catalogs = ALL_CATALOGS;
 
   function toggle(key: string) {
     setOpen((o) => ({ ...o, [key]: !o[key] }));
@@ -294,7 +269,7 @@ export default function Sidebar() {
                 />
               </Section>
 
-              <Section title="Support" open={open.support} onToggle={() => toggle("support")}>
+              <Section title="Support" open={open.supportPartner} onToggle={() => toggle("supportPartner")}>
                 <NavLink
                   href="/support"
                   label="Inbox"
@@ -392,6 +367,12 @@ export default function Sidebar() {
                   />
                 ))}
                 <NavLink
+                  href="/workspace/orders"
+                  label="Orders"
+                  icon={Receipt}
+                  active={pathname.startsWith("/workspace/orders")}
+                />
+                <NavLink
                   href="/workspace/renewals"
                   label="Renewals"
                   icon={RefreshCw}
@@ -425,7 +406,7 @@ export default function Sidebar() {
                 />
               </Section>
 
-              <Section title="Support" open={open.support} onToggle={() => toggle("support")}>
+              <Section title="Support" open={open.supportWorkspace} onToggle={() => toggle("supportWorkspace")}>
                 <NavLink
                   href="/support"
                   label={isPartner ? "Support Inbox" : "Tickets"}

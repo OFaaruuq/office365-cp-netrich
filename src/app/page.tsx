@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Menu, ShieldCheck } from "lucide-react";
 import { useSession, type MfaChallenge } from "@/components/auth/SessionProvider";
 import { roleHomePath, type SessionUser } from "@/lib/tenancy-types";
@@ -28,7 +27,6 @@ const SLIDES = [
 ];
 
 export default function SignInPage() {
-  const router = useRouter();
   const { user, ready, signInWithCredentials, signInWithEntra, completeMfa, demoLogin, entraConfigured } =
     useSession();
   const [slide, setSlide] = useState(0);
@@ -42,10 +40,16 @@ export default function SignInPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (ready && user) {
-      router.replace(roleHomePath(user.role));
-    }
-  }, [ready, user, router]);
+    if (!ready || !user) return;
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get("next");
+    const dest =
+      next && next.startsWith("/") && !next.startsWith("//")
+        ? next
+        : roleHomePath(user.role);
+    // Hard navigation so the httpOnly session cookie is included (soft router.push races middleware).
+    window.location.replace(dest);
+  }, [ready, user]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -63,8 +67,14 @@ export default function SignInPage() {
   }
 
   function finishLogin(session: SessionUser) {
-    const destination = afterLoginPath || roleHomePath(session.role);
-    router.push(destination);
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get("next");
+    const destination =
+      afterLoginPath ||
+      (next && next.startsWith("/") && !next.startsWith("//") ? next : null) ||
+      roleHomePath(session.role);
+    // Full reload avoids App Router soft-nav racing the Set-Cookie from MFA/session.
+    window.location.assign(destination);
   }
 
   async function handlePasswordSubmit(e: FormEvent) {
@@ -105,10 +115,33 @@ export default function SignInPage() {
     }
   }
 
-  if (!ready || user) {
+  if (!ready) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white text-sm text-[#6b7280]">
         Loading…
+      </div>
+    );
+  }
+
+  if (user) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-white text-sm text-[#6b7280]">
+        <div>Signing you in…</div>
+        <button
+          type="button"
+          className="text-xs font-semibold text-[#0078d4] hover:underline"
+          onClick={() => {
+            const params = new URLSearchParams(window.location.search);
+            const next = params.get("next");
+            const dest =
+              next && next.startsWith("/") && !next.startsWith("//")
+                ? next
+                : roleHomePath(user.role);
+            window.location.assign(dest);
+          }}
+        >
+          Continue
+        </button>
       </div>
     );
   }
@@ -208,15 +241,6 @@ export default function SignInPage() {
                 >
                   Sign in with Microsoft
                 </button>
-                {demoLogin && (
-                  <button
-                    type="button"
-                    onClick={() => openLogin()}
-                    className="inline-flex h-11 items-center justify-center rounded-md border border-[#0078d4] bg-white px-6 text-[15px] font-semibold text-[#0078d4] transition hover:bg-[#f3f9fd]"
-                  >
-                    Demo email sign-in
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={() => openLogin("/catalog/microsoft-365")}
@@ -230,14 +254,12 @@ export default function SignInPage() {
 
             {!demoLogin && !entraConfigured && !showCreds && (
               <p className="mt-4 text-sm text-[#c47a00]">
-                Configure NEXT_PUBLIC_AZURE_AD_CLIENT_ID for Entra SSO, or set ALLOW_DEMO_LOGIN=true for
-                local demo.
+                Configure NEXT_PUBLIC_AZURE_AD_CLIENT_ID for Microsoft Entra sign-in.
               </p>
             )}
             {entraConfigured && !showCreds && (
               <p className="mt-4 text-[12px] text-[#8a8a8a]">
-                Production identity: Microsoft Entra ID (MFA via Conditional Access). Demo email/TOTP is
-                for local development only.
+                Sign in with your Microsoft work account (Entra ID / Conditional Access MFA).
               </p>
             )}
 

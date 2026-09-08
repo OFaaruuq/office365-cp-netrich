@@ -7,11 +7,19 @@ export const PARTNER: PartnerOrg = {
   domain: "office365.cp.netrichtechnologies.com",
 };
 
+export const ALL_CATALOG_IDS: ClientTenantConfig["allowedCatalogs"] = [
+  "microsoft-365",
+  "dynamics-365",
+  "azure",
+  "server-software",
+];
+
 export const DEFAULT_TENANT_CONFIG: ClientTenantConfig = {
   portalAccessEnabled: false,
   syncEnabled: false,
   gdapEnabled: false,
-  allowedCatalogs: ["microsoft-365"],
+  /** Clients may browse and request purchase from every catalog */
+  allowedCatalogs: [...ALL_CATALOG_IDS],
   billingContactEmail: "",
   technicalContactEmail: "",
   notes: "",
@@ -44,7 +52,7 @@ export const CLIENT_TENANTS: ClientTenant[] = [
       portalAccessEnabled: true,
       syncEnabled: true,
       gdapEnabled: true,
-      allowedCatalogs: ["microsoft-365", "dynamics-365", "azure"],
+      allowedCatalogs: [...ALL_CATALOG_IDS],
       billingContactEmail: "billing@amtelkom.onmicrosoft.com",
       technicalContactEmail: "admin@amtelkom.onmicrosoft.com",
       notes: "Production CSP customer — approved by Netrich Super Admin",
@@ -70,7 +78,7 @@ export const CLIENT_TENANTS: ClientTenant[] = [
       portalAccessEnabled: true,
       syncEnabled: true,
       gdapEnabled: true,
-      allowedCatalogs: ["microsoft-365", "azure"],
+      allowedCatalogs: [...ALL_CATALOG_IDS],
       billingContactEmail: "finance@orbitdigital.onmicrosoft.com",
       technicalContactEmail: "admin@orbitdigital.onmicrosoft.com",
       notes: "Approved and configured by Netrich",
@@ -118,7 +126,7 @@ export const CLIENT_TENANTS: ClientTenant[] = [
       portalAccessEnabled: false,
       syncEnabled: false,
       gdapEnabled: true,
-      allowedCatalogs: ["microsoft-365"],
+      allowedCatalogs: [...ALL_CATALOG_IDS],
       billingContactEmail: "ap@sigmahealth.onmicrosoft.com",
       technicalContactEmail: "admin@sigmahealth.onmicrosoft.com",
       notes: "Suspended by Netrich Super Admin — billing hold",

@@ -59,7 +59,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   const refreshSession = useCallback(async () => {
-    const res = await fetch("/api/auth/session", { credentials: "include" });
+    const res = await fetch("/api/auth/session", {
+      credentials: "include",
+      cache: "no-store",
+    });
     const data = await res.json();
     if (data.code === "PORTAL_LOCKED" || !data.authenticated) {
       setUser(null);
@@ -71,9 +74,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    const ctrl = new AbortController();
+    const timeout = window.setTimeout(() => ctrl.abort(), 8000);
     (async () => {
       try {
-        const sessionRes = await fetch("/api/auth/session", { credentials: "include" });
+        const sessionRes = await fetch("/api/auth/session", {
+          credentials: "include",
+          cache: "no-store",
+          signal: ctrl.signal,
+        });
         const sessionData = await sessionRes.json();
         if (!cancelled) {
           if (sessionData.code === "PORTAL_LOCKED" || !sessionData.authenticated) {
@@ -88,11 +97,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       } catch {
         if (!cancelled) setUser(null);
       } finally {
+        window.clearTimeout(timeout);
         if (!cancelled) setReady(true);
       }
     })();
     return () => {
       cancelled = true;
+      ctrl.abort();
+      window.clearTimeout(timeout);
     };
   }, []);
 

@@ -23,16 +23,24 @@ export default function PortalLayout({
     if (ready && !user) router.replace("/");
   }, [ready, user, router]);
 
-  // Extra suspend check when entering any portal route
+  // Extra suspend check when entering any portal route (non-blocking)
   useEffect(() => {
     if (!ready || !user) return;
-    void refreshSession();
+    void refreshSession().catch(() => undefined);
   }, [ready, user?.accountId, refreshSession]);
 
-  if (!ready || !user) {
+  if (!ready) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-nt-bg text-sm text-nt-text-muted">
         Loading portal…
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-nt-bg text-sm text-nt-text-muted">
+        Redirecting to sign-in…
       </div>
     );
   }

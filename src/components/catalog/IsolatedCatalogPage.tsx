@@ -37,7 +37,6 @@ export default function IsolatedCatalogPage({
   const { user, isPartner, isClient, ready } = useSession();
   const [products, setProducts] = useState<CatalogProduct[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [denied, setDenied] = useState(false);
 
   const load = useCallback(async () => {
     if (!ready || !user) return;
@@ -61,7 +60,6 @@ export default function IsolatedCatalogPage({
         }))
       );
       setError(null);
-      setDenied(false);
       return;
     }
 
@@ -74,14 +72,12 @@ export default function IsolatedCatalogPage({
     const res = await portalFetch(`/api/products?${qs.toString()}`);
     const data = await res.json();
     if (!res.ok) {
-      if (data.code === "CATALOG_DENIED") setDenied(true);
       setError(data.error || "Catalog unavailable");
       setProducts([]);
       return;
     }
     setProducts(data.products || []);
     setError(null);
-    setDenied(false);
   }, [ready, user, isPartner, isClient, catalogId]);
 
   useEffect(() => {
@@ -93,12 +89,6 @@ export default function IsolatedCatalogPage({
       <div className="nt-card max-w-lg p-6">
         <h1 className="text-lg font-semibold">{TITLES[catalogId]}</h1>
         <p className="mt-2 text-sm text-nt-text-muted">{error}</p>
-        {denied && (
-          <p className="mt-2 text-xs text-nt-warning">
-            This catalog is not enabled for your tenant. Ask netrichtechnologies Super Admin to
-            enable it.
-          </p>
-        )}
         {isPartner && (
           <Link href="/admin/catalog" className="nt-btn-primary mt-4 inline-flex">
             Manage catalog & pricing

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveTenantScope } from "@/lib/auth/guards";
 import {
+  ALL_PRODUCT_CATALOGS,
   getAllowedCatalogProducts,
   getTenantWorkspace,
 } from "@/lib/tenant-workspace";
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       products,
       customerId: workspace.customerId,
-      allowedCatalogs: workspace.allowedCatalogs,
+      allowedCatalogs: [...ALL_PRODUCT_CATALOGS],
       source: "tenant-isolated",
       inspect: scope.inspect,
     });
@@ -60,9 +61,9 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     customerId: workspace.customerId,
-    allowedCatalogs: workspace.allowedCatalogs,
+    allowedCatalogs: [...ALL_PRODUCT_CATALOGS],
     catalogs: Object.fromEntries(
-      workspace.allowedCatalogs.map((id) => {
+      ALL_PRODUCT_CATALOGS.map((id) => {
         const result = getAllowedCatalogProducts(scope.customerId, id);
         return [id, Array.isArray(result) ? result.length : 0];
       })

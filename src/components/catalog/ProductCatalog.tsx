@@ -20,7 +20,7 @@ export default function ProductCatalog({
   filters: string[];
   showAttachPricing?: boolean;
   billingModes?: string[];
-  /** Client tenants can purchase / subscribe */
+  /** Client tenants can request purchase (approval + payment required) */
   canPurchase?: boolean;
   onPurchased?: () => void;
 }) {
@@ -64,7 +64,7 @@ export default function ProductCatalog({
     setBuyError(null);
     setBuyOk(null);
     try {
-      const res = await portalFetch("/api/commerce/subscribe", {
+      const res = await portalFetch("/api/commerce/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -75,16 +75,19 @@ export default function ProductCatalog({
       });
       const data = await res.json();
       if (!res.ok) {
-        setBuyError(data.error || "Purchase failed");
+        setBuyError(data.error || "Order request failed");
         return;
       }
-      setBuyOk(data.message || "Subscribed successfully");
+      setBuyOk(
+        data.message ||
+          "Order submitted. Licenses are issued after Super Admin approval and full payment."
+      );
       onPurchased?.();
       setTimeout(() => {
         setBuyProduct(null);
         setBuyOk(null);
         setQty(1);
-      }, 1200);
+      }, 1800);
     } finally {
       setBuying(false);
     }
@@ -100,13 +103,13 @@ export default function ProductCatalog({
     <div className="nt-fade-in">
       <h1 className="nt-page-title">{title}</h1>
 
-      {title === "Microsoft 365" && (
+      {canPurchase && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-nt-blue/20 bg-nt-blue-soft/40 px-5 py-4">
           <div>
-            <div className="text-sm font-semibold text-nt-text">Purchase & subscribe</div>
+            <div className="text-sm font-semibold text-nt-text">Request purchase</div>
             <p className="mt-0.5 text-sm text-nt-text-muted">
-              Prices are set by netrichtechnologies Super Admin. Add seats to subscribe for your
-              tenant only.
+              Browse all catalogs, submit an order, wait for Super Admin approval, then complete
+              full payment to receive licenses. Track status under Orders.
             </p>
           </div>
         </div>
@@ -233,12 +236,12 @@ export default function ProductCatalog({
                         className="nt-btn-primary py-1.5 text-xs"
                         onClick={() => {
                           setBuyProduct(p);
-                          setQty(p.qty > 0 ? 1 : 1);
+                          setQty(1);
                           setBuyError(null);
                           setBuyOk(null);
                         }}
                       >
-                        {p.status === "purchased" ? "Add seats" : "Purchase / Subscribe"}
+                        {p.status === "purchased" ? "Request more seats" : "Request purchase"}
                       </button>
                     ) : (
                       <span className="text-xs text-nt-text-muted">View only</span>
@@ -250,7 +253,7 @@ export default function ProductCatalog({
                           p.status === "purchased" ? "bg-nt-success" : "bg-nt-purple"
                         )}
                       />
-                      {p.status === "purchased" ? "Purchased" : "Available"}
+                      {p.status === "purchased" ? "Licensed" : "Available"}
                     </div>
                   </td>
                   <td className="px-5 py-4 font-medium">{p.qty || "—"}</td>
@@ -331,7 +334,7 @@ export default function ProductCatalog({
           >
             <div className="flex items-center justify-between border-b border-nt-border bg-nt-purple-soft/50 px-5 py-4">
               <div>
-                <div className="text-sm font-semibold">Purchase / subscribe</div>
+                <div className="text-sm font-semibold">Request purchase</div>
                 <div className="text-xs text-nt-text-muted">{buyProduct.name}</div>
               </div>
               <button
@@ -345,7 +348,7 @@ export default function ProductCatalog({
             </div>
             <div className="space-y-3 p-5">
               <p className="text-xs text-nt-text-muted">
-                Subscription is isolated to your tenant. Billing cycle:{" "}
+                Flow: request → Super Admin approval → full payment → licenses issued. Billing:{" "}
                 <strong>{billing}</strong>
               </p>
               <label className="block text-xs font-medium text-nt-text-muted">
@@ -361,18 +364,16 @@ export default function ProductCatalog({
                 />
               </label>
               <div className="rounded-lg bg-nt-surface-muted px-3 py-2 text-sm">
-                Est. monthly:{" "}
+                Est. amount:{" "}
                 <strong className="text-nt-purple">
                   ${(unitPreview * qty).toFixed(2)}
                 </strong>
                 <span className="text-xs text-nt-text-muted">
                   {" "}
-                  (${unitPreview.toFixed(2)} × {qty})
+                  (${unitPreview.toFixed(2)} × {qty} / mo)
                 </span>
               </div>
-              {buyError && (
-                <div className="text-sm text-nt-danger">{buyError}</div>
-              )}
+              {buyError && <div className="text-sm text-nt-danger">{buyError}</div>}
               {buyOk && <div className="text-sm text-nt-success">{buyOk}</div>}
             </div>
             <div className="flex justify-end gap-2 border-t border-nt-border bg-nt-surface-muted/40 px-5 py-3">
@@ -380,7 +381,7 @@ export default function ProductCatalog({
                 Cancel
               </button>
               <button type="submit" disabled={buying} className="nt-btn-primary">
-                {buying ? "Processing…" : "Confirm subscribe"}
+                {buying ? "Submitting…" : "Submit order request"}
               </button>
             </div>
           </form>
