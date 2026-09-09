@@ -1,3 +1,4 @@
+import { randomBytes, createCipheriv, createDecipheriv, createHash } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 import path from "path";
 import * as OTPAuth from "otpauth";
@@ -25,18 +26,56 @@ function atomicWrite(filePath: string, contents: string) {
   renameSync(tmp, filePath);
 }
 
+function mfaKey(): Buffer {
+  const s =
+    process.env.PORTAL_SESSION_SECRET ||
+    process.env.SESSION_SECRET ||
+    "netrich-office365-dev-session-secret-change-me";
+  return createHash("sha256").update(`mfa-at-rest:${s}`).digest();
+}
+
+function encryptSecret(plain: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", mfaKey(), iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `enc:${iv.toString("hex")}:${tag.toString("hex")}:${enc.toString("hex")}`;
+}
+
+function decryptSecret(stored: string): string {
+  if (!stored.startsWith("enc:")) return stored;
+  const parts = stored.split(":");
+  if (parts.length !== 4) return stored;
+  const iv = Buffer.from(parts[1]!, "hex");
+  const tag = Buffer.from(parts[2]!, "hex");
+  const data = Buffer.from(parts[3]!, "hex");
+  const decipher = createDecipheriv("aes-256-gcm", mfaKey(), iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+}
+
 function loadAll(): MfaFile {
   try {
     if (!existsSync(FILE)) return {};
     const parsed = JSON.parse(readFileSync(FILE, "utf8")) as MfaFile;
-    return parsed && typeof parsed === "object" ? parsed : {};
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: MfaFile = {};
+    for (const [id, rec] of Object.entries(parsed)) {
+      if (!rec?.secret) continue;
+      out[id] = { ...rec, secret: decryptSecret(rec.secret) };
+    }
+    return out;
   } catch {
     return {};
   }
 }
 
 function saveAll(data: MfaFile) {
-  atomicWrite(FILE, JSON.stringify(data, null, 2));
+  const persist: MfaFile = {};
+  for (const [id, rec] of Object.entries(data)) {
+    persist[id] = { ...rec, secret: encryptSecret(rec.secret) };
+  }
+  atomicWrite(FILE, JSON.stringify(persist, null, 2));
 }
 
 export function isMfaEnabled(accountId: string): boolean {
@@ -168,7 +207,7 @@ export function createMfaChallenge(
   input: Omit<Challenge, "expiresAt">,
   ttlMs = 5 * 60 * 1000
 ): string {
-  const id = `mfa-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const id = `mfa-${randomBytes(16).toString("hex")}`;
   challenges.set(id, { ...input, expiresAt: Date.now() + ttlMs });
   // prune occasionally
   if (challenges.size > 200) {

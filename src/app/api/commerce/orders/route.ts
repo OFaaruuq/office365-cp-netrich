@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  denyActiveInspectWrite,
   requireClientTenant,
   requirePartnerAdmin,
   requireSession,
@@ -14,6 +15,7 @@ import {
   rejectPurchaseOrder,
 } from "@/lib/purchase-store";
 import { loadPlatform, savePlatform } from "@/lib/platform-store";
+import { activeInspect } from "@/lib/auth/server-session";
 
 /** List purchase orders — client sees own; partner sees all */
 export async function GET(request: NextRequest) {
@@ -22,7 +24,9 @@ export async function GET(request: NextRequest) {
 
   const url = new URL(request.url);
   if (auth.session.role === "partner_admin") {
-    const customerId = url.searchParams.get("customerId") || undefined;
+    const inspect = activeInspect(auth.session);
+    const customerId =
+      url.searchParams.get("customerId") || inspect?.customerId || undefined;
     const status = url.searchParams.get("status") || undefined;
     return NextResponse.json({
       orders: listPurchaseOrders({
@@ -77,6 +81,7 @@ export async function POST(request: NextRequest) {
     title: "New purchase request",
     message: `${result.order.customerName} requested ${result.order.quantity} × ${result.order.productName}`,
     actionUrl: "/admin/commerce/orders",
+    customerId: result.order.customerId,
     createdAt: new Date().toISOString(),
   });
   platform.approvals.unshift({
@@ -127,6 +132,8 @@ export async function PATCH(request: NextRequest) {
   if (action === "approve" || action === "reject") {
     const partner = await requirePartnerAdmin(request);
     if ("error" in partner) return partner.error;
+    const inspectBlocked = denyActiveInspectWrite(partner.session);
+    if (inspectBlocked) return inspectBlocked;
 
     const result =
       action === "approve"

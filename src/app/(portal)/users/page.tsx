@@ -2,6 +2,7 @@
 
 import UsersTable from "@/components/users/UsersTable";
 import { InspectTenantGate } from "@/hooks/useInspectCustomer";
+import { useSession } from "@/components/auth/SessionProvider";
 import { useEffect, useState } from "react";
 import { portalFetch } from "@/lib/admin-api";
 import type { PortalUser } from "@/lib/types";
@@ -15,6 +16,7 @@ export default function UsersPage() {
 }
 
 function UsersBody({ customerId }: { customerId: string }) {
+  const { isPartner } = useSession();
   const [users, setUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,5 +43,12 @@ function UsersBody({ customerId }: { customerId: string }) {
     );
   }
 
-  return <UsersTable initialUsers={users} totalCount={users.length} customerId={customerId} />;
+  return (
+    <UsersTable
+      initialUsers={users}
+      totalCount={users.length}
+      customerId={customerId}
+      readOnly={isPartner}
+    />
+  );
 }

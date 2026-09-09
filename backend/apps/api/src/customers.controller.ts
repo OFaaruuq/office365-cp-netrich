@@ -1,74 +1,100 @@
-import { Controller, Get, Param, Query } from "@nestjs/common";
-import { prisma } from "../../../libs/prisma";
+import { Controller, Get, Param, Query, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { OnboardingStepKey } from "@prisma/client";
-
-const ALL_STEPS: OnboardingStepKey[] = [
-  "customer_created",
-  "microsoft_tenant_identified",
-  "csp_relationship",
-  "gdap_relationship",
-  "customer_accepted",
-  "application_consent",
-  "permissions_verified",
-  "graph_sync",
-  "partner_center_sync",
-  "pricing_configured",
-  "client_admin_created",
-  "portal_activated",
-];
+import { withTenantContext } from "../../../libs/prisma";
+import {
+  CurrentTenant,
+  RequirePartnerAdmin,
+  assertCustomerAccess,
+  type TenantContext,
+} from "../../../libs/guards";
 
 @Controller("customers")
 export class CustomersController {
+  @RequirePartnerAdmin()
   @Get()
-  async list(@Query("lifecycle") lifecycle?: string, @Query("status") status?: string) {
-    const customers = await prisma.customer.findMany({
-      where: {
-        deletedAt: null,
-        ...(lifecycle ? { lifecycle: lifecycle as never } : {}),
-        ...(status ? { status: status as never } : {}),
-      },
-      include: {
-        microsoftTenants: true,
-        contacts: true,
-        onboardingSteps: true,
-        gdapRelationships: { include: { roles: true } },
-      },
-      orderBy: { createdAt: "desc" },
+  async list(
+    @CurrentTenant() tenant: TenantContext,
+    @Query("lifecycle") lifecycle?: string,
+    @Query("status") status?: string
+  ) {
+    return withTenantContext(tenant, async (tx) => {
+      const customers = await tx.customer.findMany({
+        where: {
+          deletedAt: null,
+          ...(lifecycle ? { lifecycle: lifecycle as never } : {}),
+          ...(status ? { status: status as never } : {}),
+        },
+        include: {
+          microsoftTenants: true,
+          contacts: true,
+          onboardingSteps: true,
+          gdapRelationships: { include: { roles: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      return {
+        customers: customers.map((c) => ({
+          ...c,
+          onboarding: summarizeOnboarding(c.onboardingSteps),
+        })),
+      };
     });
-    return {
-      customers: customers.map((c) => ({
-        ...c,
-        onboarding: summarizeOnboarding(c.onboardingSteps),
-      })),
-    };
   }
 
   @Get(":id")
-  async one(@Param("id") id: string) {
-    const c = await prisma.customer.findFirst({
-      where: { OR: [{ id }, { legacyId: id }], deletedAt: null },
-      include: {
-        microsoftTenants: { include: { domains: true } },
-        contacts: true,
-        onboardingSteps: true,
-        gdapRelationships: {
-          include: { roles: true, assignments: true, events: { orderBy: { createdAt: "desc" }, take: 20 } },
+  async one(@Param("id") id: string, @CurrentTenant() tenant: TenantContext) {
+    return withTenantContext(tenant, async (tx) => {
+      const c = await tx.customer.findFirst({
+        where: { OR: [{ id }, { legacyId: id }], deletedAt: null },
+        include: {
+          microsoftTenants: { include: { domains: true } },
+          contacts: true,
+          onboardingSteps: true,
+          gdapRelationships: {
+            include: {
+              roles: true,
+              assignments: true,
+              events: { orderBy: { createdAt: "desc" as const }, take: 20 },
+            },
+          },
+          portalUsers: { where: { deleted: false } },
         },
-        portalUsers: { where: { deleted: false } },
-      },
+      });
+      if (!c) throw new NotFoundException({ error: "Not found", code: "NOT_FOUND" });
+      try {
+        assertCustomerAccess(tenant, c);
+      } catch {
+        throw new ForbiddenException({
+          code: "TENANT_ISOLATION",
+          message: "Cross-tenant access denied. Each client tenant is strictly isolated.",
+        });
+      }
+      return {
+        customer: c,
+        onboarding: summarizeOnboarding(c.onboardingSteps),
+        gdap: c.gdapRelationships.map(formatGdap),
+      };
     });
-    if (!c) return { error: "Not found", code: "NOT_FOUND" };
-    return {
-      customer: c,
-      onboarding: summarizeOnboarding(c.onboardingSteps),
-      gdap: c.gdapRelationships.map(formatGdap),
-    };
   }
 }
 
 export function summarizeOnboarding(
   steps: Array<{ stepKey: OnboardingStepKey; completed: boolean; completedAt: Date | null }>
 ) {
+  const ALL_STEPS: OnboardingStepKey[] = [
+    "customer_created",
+    "microsoft_tenant_identified",
+    "csp_relationship",
+    "gdap_relationship",
+    "customer_accepted",
+    "application_consent",
+    "permissions_verified",
+    "graph_sync",
+    "partner_center_sync",
+    "pricing_configured",
+    "client_admin_created",
+    "portal_activated",
+  ];
   const byKey = Object.fromEntries(steps.map((s) => [s.stepKey, s]));
   const items = ALL_STEPS.map((key) => ({
     key,

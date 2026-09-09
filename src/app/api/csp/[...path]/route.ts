@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePartnerAdmin, requireSession } from "@/lib/auth/guards";
+import { requirePartnerAdmin, requireSession, denyActiveInspectWrite } from "@/lib/auth/guards";
+import { authorizeCspPath } from "@/lib/auth/csp-access";
+import { applySessionCookie, activeInspect } from "@/lib/auth/server-session";
 import { loadCustomers, findCustomer, saveCustomers } from "@/lib/customer-store";
 import { writeAudit } from "@/lib/audit-log";
 import {
@@ -21,13 +23,23 @@ import {
   summarizeOnboarding,
   type OnboardingStepKey,
 } from "@/lib/foundation-store";
-import { cspApiBase } from "@/lib/csp-api";
+import { cspApiBase, cspInternalHeaders } from "@/lib/csp-api";
 import { PERMISSIONS, ROLE_PACKS, LEGACY_ROLE_MAP } from "@/lib/rbac-catalog";
+import type { ServerSession } from "@/lib/auth/server-session";
 
-async function tryNest(path: string, init?: RequestInit): Promise<Response | null> {
+async function tryNest(
+  path: string,
+  session: ServerSession,
+  customerId?: string,
+  init?: RequestInit
+): Promise<Response | null> {
   try {
     const res = await fetch(`${cspApiBase()}${path}`, {
       ...init,
+      headers: {
+        ...cspInternalHeaders(session, customerId),
+        ...(init?.headers || {}),
+      },
       signal: AbortSignal.timeout(1500),
       cache: "no-store",
     });
@@ -38,6 +50,19 @@ async function tryNest(path: string, init?: RequestInit): Promise<Response | nul
   return null;
 }
 
+function partnerListCustomerId(
+  url: URL,
+  session: ServerSession,
+  scopedCustomerId?: string
+): string | undefined {
+  return (
+    url.searchParams.get("customerId") ||
+    scopedCustomerId ||
+    activeInspect(session)?.customerId ||
+    undefined
+  );
+}
+
 export async function GET(
   request: NextRequest,
   ctx: { params: Promise<{ path: string[] }> }
@@ -46,53 +71,22 @@ export async function GET(
   const joined = path.join("/");
   const url = new URL(request.url);
 
-  // Partner-only routes
-  const partnerPaths = [
-    "gdap",
-    "flags",
-    "approvals",
-    "jobs",
-    "reporting",
-    "price-lists",
-    "quotes",
-    "invoices",
-    "orders",
-    "subscriptions",
-    "graph-sync",
-  ];
-  const needsPartner =
-    partnerPaths.some((p) => joined === p || joined.startsWith(p + "/")) ||
-    joined === "customers" ||
-    joined === "microsoft/integration" ||
-    joined === "health" ||
-    joined === "platform/health" ||
-    joined === "rbac/roles" ||
-    joined === "rbac/permissions";
+  const access = await authorizeCspPath(request, joined);
+  if ("error" in access) return access.error;
+  const { session } = access;
+  const scopedCustomerId = access.customerId;
 
-  if (needsPartner) {
-    const auth = await requirePartnerAdmin(request);
-    if ("error" in auth) return auth.error;
-  } else if (
-    joined.startsWith("customers/") ||
-    joined.startsWith("notifications") ||
-    joined.startsWith("sessions") ||
-    joined.startsWith("service-health") ||
-    joined.startsWith("security") ||
-    joined.startsWith("domains") ||
-    joined.startsWith("contacts") ||
-    joined.startsWith("billing") ||
-    joined.startsWith("license-optimization") ||
-    joined.startsWith("notification-prefs") ||
-    joined === "renewals" ||
-    joined === "audit" ||
-    joined === "portal-admins"
+  const nest = await tryNest(`/v1/${joined}${url.search}`, session, scopedCustomerId);
+  if (
+    nest &&
+    (joined === "health" ||
+      joined.startsWith("customers") ||
+      joined === "gdap" ||
+      joined.startsWith("rbac") ||
+      joined === "flags" ||
+      joined.startsWith("microsoft") ||
+      joined === "audit")
   ) {
-    const auth = await requireSession(request);
-    if ("error" in auth) return auth.error;
-  }
-
-  const nest = await tryNest(`/v1/${joined}${url.search}`);
-  if (nest && (joined === "health" || joined.startsWith("customers") || joined === "gdap" || joined.startsWith("rbac") || joined === "flags" || joined.startsWith("microsoft") || joined === "audit")) {
     const data = await nest.json();
     return NextResponse.json({ ...data, source: "nest" });
   }
@@ -128,14 +122,12 @@ export async function GET(
   }
 
   if (joined === "renewals") {
-    const auth = await requireSession(request);
-    if ("error" in auth) return auth.error;
     const days = Number(url.searchParams.get("days") || 90);
     let renewals = renewalsWindow(days);
-    if (auth.session.role !== "partner_admin") {
-      renewals = renewals.filter((r) => r.customerId === auth.session.customerId);
+    if (session.role !== "partner_admin") {
+      renewals = renewals.filter((r) => r.customerId === session.customerId);
     } else {
-      const filterId = url.searchParams.get("customerId");
+      const filterId = partnerListCustomerId(url, session, scopedCustomerId);
       if (filterId) renewals = renewals.filter((r) => r.customerId === filterId);
     }
     return NextResponse.json({
@@ -151,29 +143,33 @@ export async function GET(
   }
 
   if (joined === "price-lists") {
+    const filterId = partnerListCustomerId(url, session, scopedCustomerId);
+    const customerPriceRules = filterId
+      ? platform.customerPriceRules.filter((r) => r.customerId === filterId)
+      : platform.customerPriceRules;
     return NextResponse.json({
       priceLists: platform.priceLists,
-      customerPriceRules: platform.customerPriceRules,
+      customerPriceRules,
       source: "local",
     });
   }
 
   if (joined === "quotes") {
-    const customerId = url.searchParams.get("customerId");
+    const customerId = partnerListCustomerId(url, session, scopedCustomerId);
     let quotes = platform.quotes;
     if (customerId) quotes = quotes.filter((q) => q.customerId === customerId);
     return NextResponse.json({ quotes, source: "local" });
   }
 
   if (joined === "invoices") {
-    const customerId = url.searchParams.get("customerId");
+    const customerId = partnerListCustomerId(url, session, scopedCustomerId);
     let invoices = platform.invoices || [];
     if (customerId) invoices = invoices.filter((inv) => inv.customerId === customerId);
     return NextResponse.json({ invoices, source: "local" });
   }
 
   if (joined === "orders") {
-    const customerId = url.searchParams.get("customerId");
+    const customerId = partnerListCustomerId(url, session, scopedCustomerId);
     let orders = platform.orders || [];
     if (customerId) orders = orders.filter((o) => o.customerId === customerId);
     return NextResponse.json({ orders, source: "local" });
@@ -193,7 +189,9 @@ export async function GET(
       price: number;
     }> = [];
     const { listTenantSubscriptions } = await import("@/lib/subscription-store");
-    for (const c of customers) {
+    const filterId = partnerListCustomerId(url, session, scopedCustomerId);
+    const scopedCustomers = filterId ? customers.filter((c) => c.id === filterId) : customers;
+    for (const c of scopedCustomers) {
       for (const s of listTenantSubscriptions(c.id)) {
         rows.push({
           customerId: c.id,
@@ -221,11 +219,20 @@ export async function GET(
   }
 
   if (joined === "approvals") {
-    return NextResponse.json({ approvals: platform.approvals, source: "local" });
+    const filterId = partnerListCustomerId(url, session, scopedCustomerId);
+    let approvals = platform.approvals;
+    if (filterId) {
+      approvals = approvals.filter((a) => !a.customerId || a.customerId === filterId);
+    }
+    return NextResponse.json({ approvals, source: "local" });
   }
 
   if (joined === "graph-sync") {
-    return NextResponse.json({ states: platform.graphSync, source: "local" });
+    const filterId = partnerListCustomerId(url, session, scopedCustomerId);
+    const states = filterId
+      ? platform.graphSync.filter((g) => g.customerId === filterId)
+      : platform.graphSync;
+    return NextResponse.json({ states, source: "local" });
   }
 
   if (joined === "flags") {
@@ -239,7 +246,10 @@ export async function GET(
   if (joined === "gdap") {
     const data = loadFoundation();
     const days = url.searchParams.get("expiringWithinDays");
-    let rows = data.gdap.map((g) => {
+    const filterId = partnerListCustomerId(url, session, scopedCustomerId);
+    let rows = data.gdap
+      .filter((g) => !filterId || g.customerId === filterId)
+      .map((g) => {
       const customer = loadCustomers().find((c) => c.id === g.customerId);
       return {
         ...formatGdap(g),
@@ -256,7 +266,10 @@ export async function GET(
   }
 
   if (joined === "customers") {
-    const customers = loadCustomers().map((c) => ({
+    const inspect = activeInspect(session);
+    const customers = loadCustomers()
+      .filter((c) => !inspect || c.id === inspect.customerId)
+      .map((c) => ({
       ...c,
       onboarding: summarizeOnboarding(c.id),
       gdap: loadFoundation()
@@ -269,10 +282,8 @@ export async function GET(
   }
 
   if (joined.startsWith("customers/")) {
-    const auth = await requireSession(request);
-    if ("error" in auth) return auth.error;
     const id = joined.slice("customers/".length).split("/")[0];
-    if (auth.session.role !== "partner_admin" && auth.session.customerId !== id) {
+    if (session.role !== "partner_admin" && session.customerId !== id) {
       return NextResponse.json({ error: "Forbidden", code: "TENANT_ISOLATION" }, { status: 403 });
     }
     const c = findCustomer(id);
@@ -294,12 +305,13 @@ export async function GET(
   }
 
   if (joined === "audit") {
-    const auth = await requireSession(request);
-    if ("error" in auth) return auth.error;
     const { listAudit } = await import("@/lib/audit-log");
     let customerId = url.searchParams.get("customerId") || undefined;
-    if (auth.session.role !== "partner_admin") {
-      customerId = auth.session.customerId;
+    if (session.role !== "partner_admin") {
+      customerId = session.customerId;
+    }
+    if (!customerId && session.role !== "partner_admin") {
+      return NextResponse.json({ error: "Forbidden", code: "TENANT_ISOLATION" }, { status: 403 });
     }
     return NextResponse.json({
       events: listAudit({ customerId, limit: 100 }),
@@ -308,18 +320,16 @@ export async function GET(
   }
 
   if (joined === "portal-admins") {
-    const auth = await requireSession(request);
-    if ("error" in auth) return auth.error;
     const { listClientAdminAccounts } = await import("@/lib/account-store");
     const { isMfaEnabled } = await import("@/lib/auth/mfa");
     const customerId =
-      auth.session.role === "partner_admin"
-        ? url.searchParams.get("customerId") || auth.session.customerId
-        : auth.session.customerId;
+      session.role === "partner_admin"
+        ? url.searchParams.get("customerId") || session.customerId
+        : session.customerId;
     if (!customerId) {
       return NextResponse.json({ accounts: [], source: "local" });
     }
-    if (auth.session.role !== "partner_admin" && auth.session.customerId !== customerId) {
+    if (session.role !== "partner_admin" && session.customerId !== customerId) {
       return NextResponse.json({ error: "Forbidden", code: "TENANT_ISOLATION" }, { status: 403 });
     }
     const accounts = listClientAdminAccounts(customerId).map((a) => ({
@@ -342,72 +352,105 @@ export async function GET(
   }
 
   if (joined === "contacts") {
-    const customerId = url.searchParams.get("customerId");
-    let rows = platform.contacts;
-    if (customerId) rows = rows.filter((c) => c.customerId === customerId);
+    if (!scopedCustomerId) {
+      return NextResponse.json(
+        { error: "Specify customerId to open an isolated tenant workspace.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
+    const rows = platform.contacts.filter((c) => c.customerId === scopedCustomerId);
     return NextResponse.json({ contacts: rows, source: "local" });
   }
 
   if (joined === "domains") {
-    const customerId = url.searchParams.get("customerId");
-    let rows = platform.domains;
-    if (customerId) rows = rows.filter((d) => d.customerId === customerId);
+    if (!scopedCustomerId) {
+      return NextResponse.json(
+        { error: "Specify customerId to open an isolated tenant workspace.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
+    const rows = platform.domains.filter((d) => d.customerId === scopedCustomerId);
     return NextResponse.json({ domains: rows, source: "local" });
   }
 
   if (joined === "service-health") {
-    const customerId = url.searchParams.get("customerId") || "";
+    if (!scopedCustomerId) {
+      return NextResponse.json(
+        { error: "Specify customerId to open an isolated tenant workspace.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
     return NextResponse.json({
-      services: platform.serviceHealth[customerId] || [],
+      services: platform.serviceHealth[scopedCustomerId] || [],
       source: "local",
     });
   }
 
   if (joined === "security") {
-    const customerId = url.searchParams.get("customerId") || "";
+    if (!scopedCustomerId) {
+      return NextResponse.json(
+        { error: "Specify customerId to open an isolated tenant workspace.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
     return NextResponse.json({
-      security: platform.security[customerId] || null,
+      security: platform.security[scopedCustomerId] || null,
       source: "local",
     });
   }
 
   if (joined === "license-optimization") {
-    const customerId = url.searchParams.get("customerId") || "";
-    return NextResponse.json({ ...licenseOptimization(customerId), source: "local" });
+    if (!scopedCustomerId) {
+      return NextResponse.json(
+        { error: "Specify customerId to open an isolated tenant workspace.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ ...licenseOptimization(scopedCustomerId), source: "local" });
   }
 
   if (joined === "billing/overview") {
-    const customerId = url.searchParams.get("customerId") || "";
+    if (!scopedCustomerId) {
+      return NextResponse.json(
+        { error: "Specify customerId to open an isolated tenant workspace.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
     const { listTenantSubscriptions, getTenantCostSummary } = await import(
       "@/lib/subscription-store"
     );
     return NextResponse.json({
-      cost: getTenantCostSummary(customerId),
-      subscriptions: listTenantSubscriptions(customerId),
-      invoices: (platform.invoices || []).filter((inv) => inv.customerId === customerId),
+      cost: getTenantCostSummary(scopedCustomerId),
+      subscriptions: listTenantSubscriptions(scopedCustomerId),
+      invoices: (platform.invoices || []).filter((inv) => inv.customerId === scopedCustomerId),
       credits: [],
       source: "local",
     });
   }
 
   if (joined === "notifications") {
-    const auth = await requireSession(request);
-    if ("error" in auth) return auth.error;
-    const userId = auth.session.accountId;
-    const customerId = auth.session.customerId;
-    const rows = platform.notifications.filter(
-      (n) =>
-        (!n.userId || n.userId === userId) &&
-        (!n.customerId || n.customerId === customerId || auth.session.role === "partner_admin")
-    );
+    const userId = session.accountId;
+    const customerId = session.customerId;
+    const inspect = activeInspect(session);
+    const rows = platform.notifications.filter((n) => {
+      if (n.userId && n.userId !== userId) return false;
+      if (session.role === "partner_admin") {
+        if (inspect) {
+          return !n.customerId || n.customerId === inspect.customerId;
+        }
+        return true;
+      }
+      if (session.role === "customer_admin") {
+        return Boolean(n.customerId && n.customerId === customerId);
+      }
+      return Boolean(n.userId && n.userId === userId);
+    });
     return NextResponse.json({ notifications: rows, source: "local" });
   }
 
   if (joined === "notification-prefs") {
-    const auth = await requireSession(request);
-    if ("error" in auth) return auth.error;
-    const pref = platform.notificationPrefs.find((p) => p.userId === auth.session.accountId) || {
-      userId: auth.session.accountId,
+    const pref = platform.notificationPrefs.find((p) => p.userId === session.accountId) || {
+      userId: session.accountId,
       renewals: ["email", "portal"],
       security: ["email", "portal"],
       invoices: ["email"],
@@ -418,24 +461,41 @@ export async function GET(
   }
 
   if (joined === "sessions") {
-    const auth = await requireSession(request);
-    if ("error" in auth) return auth.error;
     const rows = platform.sessions.filter(
-      (s) => s.userId === auth.session.accountId && !s.revokedAt
+      (s) => s.userId === session.accountId && !s.revokedAt
     );
     return NextResponse.json({ sessions: rows, source: "local" });
   }
 
   if (joined === "pricing/compute") {
     const productId = url.searchParams.get("productId") || "";
-    const customerId = url.searchParams.get("customerId") || undefined;
-    return NextResponse.json({ price: computePrice(productId, customerId), source: "local" });
+    return NextResponse.json({
+      price: computePrice(productId, scopedCustomerId),
+      source: "local",
+    });
   }
 
   if (joined === "break-glass") {
-    const auth = await requirePartnerAdmin(request);
-    if ("error" in auth) return auth.error;
     return NextResponse.json({ emails: platform.breakGlassEmails, source: "local" });
+  }
+
+  if (joined === "admin-access") {
+    const inspect = activeInspect(session);
+    if (!inspect) {
+      return NextResponse.json({ session: null, source: "local" });
+    }
+    const customer = findCustomer(inspect.customerId);
+    return NextResponse.json({
+      session: {
+        customerId: inspect.customerId,
+        customerName: inspect.customerName || customer?.name,
+        reason: inspect.reason,
+        readOnly: inspect.readOnly,
+        expiresAt: new Date(inspect.exp * 1000).toISOString(),
+        banner: `Viewing ${inspect.customerName || customer?.name || inspect.customerId} as Partner Administrator (read-only)`,
+      },
+      source: "local",
+    });
   }
 
   if (joined === "catalog/metadata") {
@@ -467,6 +527,13 @@ export async function POST(
 ) {
   const { path } = await ctx.params;
   const joined = path.join("/");
+  const access = await authorizeCspPath(request, joined);
+  if ("error" in access) return access.error;
+  if (joined !== "admin-access" && joined !== "admin-access/end") {
+    const inspectBlocked = denyActiveInspectWrite(access.session);
+    if (inspectBlocked) return inspectBlocked;
+  }
+
   const body = await request.json().catch(() => ({}));
   const platform = loadPlatform();
 
@@ -501,7 +568,7 @@ export async function POST(
       detail: `View-as-customer: ${reason}`,
       meta: { adminAccessSessionId: session.id, risk_level: "high" },
     });
-    return NextResponse.json({
+    const res = NextResponse.json({
       session: {
         ...session,
         customerName: customer?.name,
@@ -509,6 +576,24 @@ export async function POST(
       },
       source: "local",
     });
+    await applySessionCookie(res, {
+      accountId: auth.session.accountId,
+      name: auth.session.name,
+      email: auth.session.email,
+      role: auth.session.role,
+      customerId: auth.session.customerId,
+      customerName: auth.session.customerName,
+      team: auth.session.team,
+      title: auth.session.title,
+      inspect: {
+        customerId,
+        customerName: customer?.name,
+        reason,
+        readOnly: session.readOnly,
+        exp: Math.floor(Date.now() / 1000) + minutes * 60,
+      },
+    });
+    return res;
   }
 
   if (joined === "approvals") {
@@ -680,6 +765,23 @@ export async function POST(
     return NextResponse.json({ emails: platform.breakGlassEmails, source: "local" });
   }
 
+  if (joined === "admin-access/end") {
+    const auth = await requirePartnerAdmin(request);
+    if ("error" in auth) return auth.error;
+    const res = NextResponse.json({ ok: true, source: "local" });
+    await applySessionCookie(res, {
+      accountId: auth.session.accountId,
+      name: auth.session.name,
+      email: auth.session.email,
+      role: auth.session.role,
+      customerId: auth.session.customerId,
+      customerName: auth.session.customerName,
+      team: auth.session.team,
+      title: auth.session.title,
+    });
+    return res;
+  }
+
   return NextResponse.json({ error: "Not found" }, { status: 404 });
 }
 
@@ -687,13 +789,13 @@ export async function PATCH(
   request: NextRequest,
   ctx: { params: Promise<{ path: string[] }> }
 ) {
-  const auth = await requirePartnerAdmin(request);
-  if ("error" in auth && !String((await ctx.params).path.join("/")).startsWith("notification")) {
-    // allow client for some patches below
-  }
-
   const { path } = await ctx.params;
   const joined = path.join("/");
+  const access = await authorizeCspPath(request, joined);
+  if ("error" in access) return access.error;
+  const inspectBlocked = denyActiveInspectWrite(access.session);
+  if (inspectBlocked) return inspectBlocked;
+
   const body = await request.json().catch(() => ({}));
   const platform = loadPlatform();
 
@@ -784,14 +886,24 @@ export async function PATCH(
   }
 
   if (joined.startsWith("notifications/") && joined.endsWith("/read")) {
-    const session = await requireSession(request);
-    if ("error" in session) return session.error;
+    const sessionAuth = await requireSession(request);
+    if ("error" in sessionAuth) return sessionAuth.error;
     const id = joined.split("/")[1];
     const n = platform.notifications.find((x) => x.id === id);
-    if (n) {
-      n.readAt = new Date().toISOString();
-      savePlatform(platform);
+    if (!n) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const s = sessionAuth.session;
+    if (n.userId && n.userId !== s.accountId) {
+      return NextResponse.json({ error: "Forbidden", code: "TENANT_ISOLATION" }, { status: 403 });
     }
+    if (s.role === "customer_admin") {
+      if (!n.customerId || n.customerId !== s.customerId) {
+        return NextResponse.json({ error: "Forbidden", code: "TENANT_ISOLATION" }, { status: 403 });
+      }
+    } else if (s.role !== "partner_admin" && n.userId !== s.accountId) {
+      return NextResponse.json({ error: "Forbidden", code: "TENANT_ISOLATION" }, { status: 403 });
+    }
+    n.readAt = new Date().toISOString();
+    savePlatform(platform);
     return NextResponse.json({ ok: true, source: "local" });
   }
 
@@ -839,6 +951,56 @@ export async function PATCH(
       | "TERMINATING"
       | "RETENTION"
       | "PURGED";
+    if (lifecycle === "TERMINATING" || lifecycle === "PURGED") {
+      if (!body.approvalId) {
+        const approval = {
+          id: `apr-${Date.now().toString(36)}`,
+          operation: "tenant.terminate",
+          customerId: id,
+          requesterEmail: partner.session.email,
+          status: "pending" as const,
+          payload: { action: "terminate", lifecycle },
+          createdAt: new Date().toISOString(),
+        };
+        platform.approvals.unshift(approval);
+        savePlatform(platform);
+        writeAudit({
+          action: "tenant.delete",
+          actorAccountId: partner.session.accountId,
+          actorEmail: partner.session.email,
+          actorRole: partner.session.role,
+          customerId: id,
+          detail: `Termination approval requested via CSP lifecycle (${lifecycle})`,
+          riskLevel: "critical",
+          approvalId: approval.id,
+          result: "pending",
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            requiresApproval: true,
+            approval,
+            message: `Four-eyes approval required to set lifecycle ${lifecycle}.`,
+            source: "local",
+          },
+          { status: 409 }
+        );
+      }
+      const apr = platform.approvals.find((a) => a.id === String(body.approvalId));
+      if (
+        !apr ||
+        apr.status !== "approved" ||
+        apr.operation !== "tenant.terminate" ||
+        apr.customerId !== id
+      ) {
+        return NextResponse.json(
+          { error: "Valid approved termination approval required", code: "APPROVAL_REQUIRED" },
+          { status: 400 }
+        );
+      }
+      apr.status = "executed";
+      savePlatform(platform);
+    }
     customers[idx] = {
       ...customers[idx],
       lifecycle,
@@ -849,6 +1011,15 @@ export async function PATCH(
       },
     };
     saveCustomers(customers);
+    writeAudit({
+      action: "tenant.configure",
+      actorAccountId: partner.session.accountId,
+      actorEmail: partner.session.email,
+      actorRole: partner.session.role,
+      customerId: id,
+      detail: `CSP lifecycle set to ${lifecycle}`,
+      riskLevel: lifecycle === "ACTIVE" ? "medium" : "high",
+    });
     return NextResponse.json({ customer: customers[idx], source: "local" });
   }
 

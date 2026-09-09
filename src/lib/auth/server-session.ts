@@ -3,19 +3,29 @@ import { cookies } from "next/headers";
 import type { PortalRole, SessionUser, SupportTeam } from "@/lib/tenancy-types";
 import { requireHardenedSessionSecret } from "@/lib/auth/demo-mode";
 
-export const SESSION_COOKIE = "nt_portal_session";
+export const SESSION_COOKIE =
+  process.env.NODE_ENV === "production" ? "__Host-nt_portal_session" : "nt_portal_session";
+export const LEGACY_SESSION_COOKIE = "nt_portal_session";
 /** Client sessions expire faster so suspend/reject converges sooner */
 const MAX_AGE_SEC = 60 * 60 * 12; // 12 hours
 const CLIENT_MAX_AGE_SEC = 60 * 30; // 30 minutes for customer_admin
 
 function secret(): string {
   const configured = process.env.PORTAL_SESSION_SECRET || process.env.SESSION_SECRET;
-  if (configured && configured.length >= 16) return configured;
+  if (configured && configured.length >= 32) return configured;
   if (process.env.NODE_ENV === "production") {
-    throw new Error("PORTAL_SESSION_SECRET is required in production");
+    throw new Error("PORTAL_SESSION_SECRET is required in production (≥32 chars)");
   }
   return "netrich-office365-dev-session-secret-change-me";
 }
+
+export type InspectClaim = {
+  customerId: string;
+  customerName?: string;
+  reason: string;
+  readOnly: boolean;
+  exp: number;
+};
 
 export type ServerSession = {
   accountId: string;
@@ -28,6 +38,7 @@ export type ServerSession = {
   title: string;
   iat: number;
   exp: number;
+  inspect?: InspectClaim;
 };
 
 function b64urlFromBytes(bytes: ArrayBuffer | Uint8Array): string {
@@ -111,6 +122,9 @@ export async function decodeSessionToken(
     const session = JSON.parse(json) as ServerSession;
     if (!session.exp || session.exp < Math.floor(Date.now() / 1000)) return null;
     if (!session.accountId || !session.role || !session.email) return null;
+    if (session.inspect && session.inspect.exp < Math.floor(Date.now() / 1000)) {
+      delete session.inspect;
+    }
     return session;
   } catch {
     return null;
@@ -127,6 +141,12 @@ export function sessionCookieOptions(maxAge = MAX_AGE_SEC) {
   };
 }
 
+function cookieValue(
+  get: (name: string) => string | undefined
+): string | undefined {
+  return get(SESSION_COOKIE) || get(LEGACY_SESSION_COOKIE);
+}
+
 export async function applySessionCookie(
   res: NextResponse,
   session: Omit<ServerSession, "iat" | "exp">
@@ -134,26 +154,40 @@ export async function applySessionCookie(
   const token = await encodeSessionToken(session);
   const maxAge = session.role === "customer_admin" ? CLIENT_MAX_AGE_SEC : MAX_AGE_SEC;
   res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(maxAge));
+  if (SESSION_COOKIE !== LEGACY_SESSION_COOKIE) {
+    res.cookies.set(LEGACY_SESSION_COOKIE, "", { ...sessionCookieOptions(0), maxAge: 0 });
+  }
   return res;
 }
 
 export function clearSessionCookie(res: NextResponse) {
   res.cookies.set(SESSION_COOKIE, "", { ...sessionCookieOptions(0), maxAge: 0 });
+  if (SESSION_COOKIE !== LEGACY_SESSION_COOKIE) {
+    res.cookies.set(LEGACY_SESSION_COOKIE, "", { ...sessionCookieOptions(0), maxAge: 0 });
+  }
   return res;
 }
 
 export async function readSessionFromRequest(
   request: NextRequest
 ): Promise<ServerSession | null> {
-  return decodeSessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+  return decodeSessionToken(
+    cookieValue((name) => request.cookies.get(name)?.value)
+  );
 }
 
 export async function readSessionFromCookies(): Promise<ServerSession | null> {
   const jar = await cookies();
-  return decodeSessionToken(jar.get(SESSION_COOKIE)?.value);
+  return decodeSessionToken(cookieValue((name) => jar.get(name)?.value));
+}
+
+export function activeInspect(s: ServerSession): InspectClaim | null {
+  if (!s.inspect || s.inspect.exp < Math.floor(Date.now() / 1000)) return null;
+  return s.inspect;
 }
 
 export function toClientSession(s: ServerSession): SessionUser {
+  const inspect = activeInspect(s);
   return {
     accountId: s.accountId,
     name: s.name,
@@ -163,5 +197,14 @@ export function toClientSession(s: ServerSession): SessionUser {
     customerName: s.customerName,
     team: s.team,
     title: s.title,
+    inspect: inspect
+      ? {
+          customerId: inspect.customerId,
+          customerName: inspect.customerName,
+          reason: inspect.reason,
+          readOnly: inspect.readOnly,
+          expiresAt: new Date(inspect.exp * 1000).toISOString(),
+        }
+      : undefined,
   };
 }

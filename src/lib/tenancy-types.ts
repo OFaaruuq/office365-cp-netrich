@@ -84,6 +84,14 @@ export interface SessionUser {
   customerName?: string;
   team?: SupportTeam;
   title: string;
+  /** Partner view-as-customer — server-bound, not sessionStorage */
+  inspect?: {
+    customerId: string;
+    customerName?: string;
+    reason: string;
+    readOnly: boolean;
+    expiresAt: string;
+  };
 }
 
 export type ThreadStatus = "queued" | "active" | "resolved";

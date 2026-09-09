@@ -134,16 +134,29 @@ export async function POST(request: NextRequest) {
   }
 
   const ip = clientIp(request);
-  const limited = rateLimit(`login:${ip}`, 20, 60_000);
-  if (!limited.ok) {
+  const limitedIp = rateLimit(`login:ip:${ip}`, 8, 60_000);
+  if (!limitedIp.ok) {
     return NextResponse.json(
       {
         error: "Too many sign-in attempts. Try again shortly.",
         code: "RATE_LIMITED",
-        retryAfterSec: limited.retryAfterSec,
+        retryAfterSec: limitedIp.retryAfterSec,
       },
       { status: 429 }
     );
+  }
+  if (emailPreview) {
+    const limitedEmail = rateLimit(`login:email:${emailPreview}`, 5, 60_000);
+    if (!limitedEmail.ok) {
+      return NextResponse.json(
+        {
+          error: "Too many sign-in attempts. Try again shortly.",
+          code: "RATE_LIMITED",
+          retryAfterSec: limitedEmail.retryAfterSec,
+        },
+        { status: 429 }
+      );
+    }
   }
 
   const body = bodyPreview;
@@ -184,7 +197,7 @@ export async function POST(request: NextRequest) {
     if (!account) {
       return denyLogin(ip, "Unknown account id");
     }
-    if (password && !verifyAccountPassword(account.id, password)) {
+    if (!verifyAccountPassword(account.id, password)) {
       return denyLogin(ip, "Bad password", account);
     }
     if (account.disabled) {

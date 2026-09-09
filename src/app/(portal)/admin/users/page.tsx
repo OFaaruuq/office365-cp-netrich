@@ -43,7 +43,7 @@ type Modal =
 
 export default function AdminUsersPage() {
   const router = useRouter();
-  const { isPartner, ready, user } = useSession();
+  const { isPartner, ready, user, demoLogin } = useSession();
   const headers = useSuperAdminHeaders();
   const [tab, setTab] = useState<Tab>("clients");
   const [accounts, setAccounts] = useState<AdminRow[]>([]);
@@ -142,6 +142,10 @@ export default function AdminUsersPage() {
 
   async function createAccount(e: FormEvent) {
     e.preventDefault();
+    if (!demoLogin && !form.password) {
+      setError("Password required (at least 12 characters, including letters and numbers).");
+      return;
+    }
     if (form.password && form.password !== form.confirmPassword) {
       setError("Passwords do not match.");
       return;
@@ -343,7 +347,9 @@ export default function AdminUsersPage() {
                   {tab === "staff" ? "Add Super Admin / Support" : "Add Client Admin"}
                 </div>
                 <div className="text-xs text-nt-text-muted">
-                  Optional password — leave blank to use the default demo password
+                  {demoLogin
+                    ? "Optional password — leave blank to use the shared demo password"
+                    : "Password required — at least 12 characters, including letters and numbers"}
                 </div>
               </div>
               <button
@@ -416,25 +422,26 @@ export default function AdminUsersPage() {
                 />
               </label>
               <label className="block text-xs font-medium text-nt-text-muted">
-                Password (optional)
+                Password {demoLogin ? "(optional)" : "*"}
                 <input
                   className="nt-input mt-1"
                   type="password"
-                  minLength={6}
+                  required={!demoLogin}
+                  minLength={12}
                   autoComplete="new-password"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder="Min 6 characters"
+                  placeholder="Min 12 characters, letters and numbers"
                 />
               </label>
-              {form.password ? (
+              {(!demoLogin || form.password) ? (
                 <label className="block text-xs font-medium text-nt-text-muted">
                   Confirm password *
                   <input
                     className="nt-input mt-1"
                     type="password"
                     required
-                    minLength={6}
+                    minLength={12}
                     autoComplete="new-password"
                     value={form.confirmPassword}
                     onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
@@ -538,11 +545,11 @@ export default function AdminUsersPage() {
                   className="nt-input mt-1"
                   type="password"
                   required
-                  minLength={6}
+                  minLength={12}
                   autoComplete="new-password"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder="Min 6 characters"
+                  placeholder="Min 12 characters, letters and numbers"
                 />
               </label>
               <label className="block text-xs font-medium text-nt-text-muted">
@@ -551,13 +558,13 @@ export default function AdminUsersPage() {
                   className="nt-input mt-1"
                   type="password"
                   required
-                  minLength={6}
+                  minLength={12}
                   autoComplete="new-password"
                   value={form.confirmPassword}
                   onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
                 />
               </label>
-              {modal.account.hasCustomPassword && (
+              {modal.account.hasCustomPassword && demoLogin && (
                 <button
                   type="button"
                   disabled={busyId === modal.account.id}

@@ -204,8 +204,8 @@ export async function PATCH(request: NextRequest) {
   const action = body.action as string | undefined;
 
   if (action === "delete" || action === "terminate") {
-    // Soft terminate requires four-eyes approval unless approvalId provided or force purge
-    if (!body.force && !body.approvalId && !body.skipApproval) {
+    // Soft terminate requires four-eyes approval. force=true hard-purges after approval.
+    if (!body.approvalId) {
       const { loadPlatform, savePlatform } = await import("@/lib/platform-store");
       const platform = loadPlatform();
       const approval = {
@@ -237,7 +237,7 @@ export async function PATCH(request: NextRequest) {
         message: `Four-eyes approval required to terminate "${current.name}". Another Super Admin must approve in Approvals, then retry with approvalId.`,
       });
     }
-    if (body.approvalId && !body.force) {
+    if (body.approvalId) {
       const { loadPlatform, savePlatform } = await import("@/lib/platform-store");
       const platform = loadPlatform();
       const apr = platform.approvals.find((a) => a.id === body.approvalId);

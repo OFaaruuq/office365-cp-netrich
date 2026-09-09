@@ -1,7 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 import path from "path";
-import { getDemoPassword } from "@/lib/auth/demo-mode";
+import { getDemoPassword, isDemoLoginAllowed } from "@/lib/auth/demo-mode";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const FILE = path.join(DATA_DIR, "account-passwords.json");
@@ -63,8 +63,14 @@ export function setAccountPassword(
   updatedBy?: string
 ): { ok: true } | { error: string; code: string } {
   const pwd = password.trim();
-  if (pwd.length < 6) {
-    return { error: "Password must be at least 6 characters.", code: "WEAK_PASSWORD" };
+  if (pwd.length < 12) {
+    return { error: "Password must be at least 12 characters.", code: "WEAK_PASSWORD" };
+  }
+  if (!/[A-Za-z]/.test(pwd) || !/[0-9]/.test(pwd)) {
+    return {
+      error: "Password must include letters and numbers.",
+      code: "WEAK_PASSWORD",
+    };
   }
   const all = loadAll();
   all[accountId] = {
@@ -94,5 +100,6 @@ export function verifyAccountPassword(accountId: string, password: string): bool
   if (rec?.hash) {
     return verifyHash(password, rec.hash);
   }
+  if (!isDemoLoginAllowed()) return false;
   return password === getDemoPassword();
 }

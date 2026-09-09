@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
     title: "New purchase request",
     message: `${result.order.customerName} requested ${result.order.quantity} × ${result.order.productName}`,
     actionUrl: "/admin/commerce/orders",
+    customerId: result.order.customerId,
     createdAt: new Date().toISOString(),
   });
   platform.approvals.unshift({

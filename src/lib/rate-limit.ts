@@ -1,4 +1,4 @@
-/** Simple in-memory rate limiter (per process) for demo isolation hardening */
+/** Rate limiter. Per-process; set TRUST_PROXY=true behind a reverse proxy. */
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
 export function rateLimit(
@@ -20,7 +20,10 @@ export function rateLimit(
 }
 
 export function clientIp(request: Request): string {
-  const xf = request.headers.get("x-forwarded-for");
-  if (xf) return xf.split(",")[0]?.trim() || "unknown";
-  return request.headers.get("x-real-ip") || "unknown";
+  if (process.env.TRUST_PROXY === "true") {
+    const xf = request.headers.get("x-forwarded-for");
+    if (xf) return xf.split(",")[0]?.trim() || "unknown";
+    return request.headers.get("x-real-ip") || "unknown";
+  }
+  return request.headers.get("x-real-ip") || "direct";
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  activeInspect,
   clearSessionCookie,
   readSessionFromRequest,
   type ServerSession,
@@ -7,6 +8,23 @@ import {
 import { findCustomer } from "@/lib/customer-store";
 import { writeAudit } from "@/lib/audit-log";
 import type { PortalRole, SupportThread } from "@/lib/tenancy-types";
+
+export function denyInspectWrite(scope: { inspect: boolean }): NextResponse | null {
+  if (!scope.inspect) return null;
+  return NextResponse.json(
+    { error: "View-as-customer is read-only", code: "READ_ONLY" },
+    { status: 403 }
+  );
+}
+
+/** Blocks mutations while a partner view-as session is bound to the cookie. */
+export function denyActiveInspectWrite(session: ServerSession): NextResponse | null {
+  if (!activeInspect(session)) return null;
+  return NextResponse.json(
+    { error: "View-as-customer is read-only", code: "READ_ONLY" },
+    { status: 403 }
+  );
+}
 
 export function unauthorized(message = "Authentication required") {
   return NextResponse.json({ error: message, code: "UNAUTHORIZED" }, { status: 401 });
@@ -110,6 +128,60 @@ export async function requireClientTenant(
     };
   }
   return { session: auth.session, customerId };
+}
+
+/**
+ * Access a specific customer resource (path id or explicit id).
+ * Never trusts x-customer-id. Support is denied.
+ */
+export async function requireCustomerResource(
+  request: NextRequest,
+  customerId: string | null | undefined
+): Promise<
+  | { session: ServerSession; customerId: string; inspect: boolean }
+  | { error: NextResponse }
+> {
+  const auth = await requireSession(request);
+  if ("error" in auth) return auth;
+  const { session } = auth;
+  const id = String(customerId || "").trim();
+  if (!id) {
+    return {
+      error: NextResponse.json(
+        { error: "Specify customerId to open an isolated tenant workspace.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      ),
+    };
+  }
+
+  if (session.role === "partner_admin") {
+    if (!findCustomer(id)) {
+      return { error: NextResponse.json({ error: "Tenant not found" }, { status: 404 }) };
+    }
+    return { session, customerId: id, inspect: true };
+  }
+
+  if (session.role === "customer_admin") {
+    if (!session.customerId) {
+      return { error: forbidden("Session is not bound to a client tenant.", "NO_TENANT") };
+    }
+    if (id !== session.customerId) {
+      return {
+        error: forbidden(
+          "Cross-tenant access denied. Each client tenant is strictly isolated.",
+          "TENANT_ISOLATION"
+        ),
+      };
+    }
+    return { session, customerId: session.customerId, inspect: false };
+  }
+
+  return {
+    error: forbidden(
+      "Support agents cannot access client tenant workspaces. Use the support inbox.",
+      "SUPPORT_NO_TENANT_WORKSPACE"
+    ),
+  };
 }
 
 /**

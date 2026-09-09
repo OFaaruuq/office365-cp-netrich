@@ -41,19 +41,32 @@ export async function validateEntraAccessToken(
       audience,
     });
     const iss = String(payload.iss || "");
+    if (!/^https:\/\/login\.microsoftonline\.com\/[0-9a-fA-F-]+\/v2\.0$/i.test(iss)) {
+      return null;
+    }
+    const expectedTid = process.env.AZURE_AD_TENANT_ID || "";
     if (
-      iss &&
-      !/^https:\/\/login\.microsoftonline\.com\/[0-9a-fA-F-]+\/v2\.0$/i.test(iss) &&
-      !iss.includes("login.microsoftonline.com")
+      expectedTid &&
+      expectedTid !== "common" &&
+      expectedTid !== "organizations" &&
+      payload.tid &&
+      String(payload.tid) !== expectedTid
     ) {
       return null;
     }
     return payload as EntraClaims;
   } catch {
+    if (tenantHint !== "common" && tenantHint !== "organizations") {
+      return null;
+    }
     try {
       const { payload } = await jwtVerify(token, jwksForTenant("common"), {
         audience,
       });
+      const iss = String(payload.iss || "");
+      if (!/^https:\/\/login\.microsoftonline\.com\/[0-9a-fA-F-]+\/v2\.0$/i.test(iss)) {
+        return null;
+      }
       return payload as EntraClaims;
     } catch {
       return null;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveTenantScope } from "@/lib/auth/guards";
+import { denyInspectWrite, resolveTenantScope } from "@/lib/auth/guards";
 import { writeAudit } from "@/lib/audit-log";
 import {
   createDirectoryUser,
@@ -44,12 +44,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const scope = await resolveTenantScope(request);
   if ("error" in scope) return scope.error;
-  if (scope.inspect) {
-    return NextResponse.json(
-      { error: "View-as-customer is read-only", code: "READ_ONLY" },
-      { status: 403 }
-    );
-  }
+  const blocked = denyInspectWrite(scope);
+  if (blocked) return blocked;
 
   const body = await request.json().catch(() => ({}));
   const displayName = String(body.displayName || "").trim();
@@ -80,12 +76,8 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const scope = await resolveTenantScope(request);
   if ("error" in scope) return scope.error;
-  if (scope.inspect) {
-    return NextResponse.json(
-      { error: "View-as-customer is read-only", code: "READ_ONLY" },
-      { status: 403 }
-    );
-  }
+  const blocked = denyInspectWrite(scope);
+  if (blocked) return blocked;
 
   const body = await request.json().catch(() => ({}));
   const userId = String(body.userId || body.id || "");

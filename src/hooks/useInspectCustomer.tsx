@@ -100,6 +100,14 @@ export function useInspectCustomer() {
       setTarget({ customerId: qs, source: "query" });
       return;
     }
+    if (user.inspect?.customerId) {
+      setTarget({
+        customerId: user.inspect.customerId,
+        customerName: user.inspect.customerName,
+        source: "view-as",
+      });
+      return;
+    }
     const viewAs = readViewAs();
     if (viewAs?.customerId) {
       setTarget({ ...viewAs, source: "view-as" });

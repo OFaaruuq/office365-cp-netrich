@@ -1,9 +1,11 @@
 import { Controller, Get } from "@nestjs/common";
 import { prisma } from "../../../libs/prisma";
 import { getSamConfigStatus } from "../../../libs/sam";
+import { Public } from "../../../libs/guards";
 
 @Controller()
 export class HealthController {
+  @Public()
   @Get("health")
   async health() {
     let postgres: "healthy" | "down" = "down";

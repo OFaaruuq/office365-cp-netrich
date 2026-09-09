@@ -5,6 +5,7 @@ import Link from "next/link";
 import ProductCatalog from "@/components/catalog/ProductCatalog";
 import { portalFetch } from "@/lib/admin-api";
 import { useSession } from "@/components/auth/SessionProvider";
+import { InspectTenantGate } from "@/hooks/useInspectCustomer";
 import type { CatalogProduct } from "@/lib/types";
 
 const FILTERS: Record<string, string[]> = {
@@ -34,6 +35,20 @@ export default function IsolatedCatalogPage({
 }: {
   catalogId: "microsoft-365" | "dynamics-365" | "azure" | "server-software";
 }) {
+  return (
+    <InspectTenantGate title={`Select a client tenant for ${TITLES[catalogId]}`}>
+      {(customerId) => <CatalogBody catalogId={catalogId} customerId={customerId} />}
+    </InspectTenantGate>
+  );
+}
+
+function CatalogBody({
+  catalogId,
+  customerId,
+}: {
+  catalogId: "microsoft-365" | "dynamics-365" | "azure" | "server-software";
+  customerId: string;
+}) {
   const { user, isPartner, isClient, ready } = useSession();
   const [products, setProducts] = useState<CatalogProduct[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,34 +56,7 @@ export default function IsolatedCatalogPage({
   const load = useCallback(async () => {
     if (!ready || !user) return;
 
-    // Super Admin manages global pricing in /admin/catalog — no customerId required
-    if (isPartner) {
-      const res = await portalFetch(
-        `/api/admin/catalog?catalog=${encodeURIComponent(catalogId)}`
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to load catalog");
-        setProducts([]);
-        return;
-      }
-      setProducts(
-        (data.products || []).map((p: CatalogProduct & { active?: boolean }) => ({
-          ...p,
-          status: "available" as const,
-          qty: 0,
-        }))
-      );
-      setError(null);
-      return;
-    }
-
-    if (!isClient || !user.customerId) {
-      setError("No tenant bound to this session.");
-      return;
-    }
-
-    const qs = new URLSearchParams({ catalog: catalogId });
+    const qs = new URLSearchParams({ catalog: catalogId, customerId });
     const res = await portalFetch(`/api/products?${qs.toString()}`);
     const data = await res.json();
     if (!res.ok) {
@@ -78,7 +66,7 @@ export default function IsolatedCatalogPage({
     }
     setProducts(data.products || []);
     setError(null);
-  }, [ready, user, isPartner, isClient, catalogId]);
+  }, [ready, user, catalogId, customerId]);
 
   useEffect(() => {
     void load();
@@ -91,7 +79,7 @@ export default function IsolatedCatalogPage({
         <p className="mt-2 text-sm text-nt-text-muted">{error}</p>
         {isPartner && (
           <Link href="/admin/catalog" className="nt-btn-primary mt-4 inline-flex">
-            Manage catalog & pricing
+            Manage global catalog & pricing
           </Link>
         )}
       </div>
@@ -107,8 +95,8 @@ export default function IsolatedCatalogPage({
       {isPartner && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-nt-purple/20 bg-nt-purple-soft/50 px-4 py-3">
           <p className="text-sm text-nt-text">
-            Super Admin view — edit prices and SKUs in Catalog Management. Clients purchase from
-            this list.
+            Inspecting this tenant&apos;s catalog (read-only). Global SKUs and prices are managed in
+            Catalog Management.
           </p>
           <Link href="/admin/catalog" className="nt-btn-primary text-xs">
             Manage products & pricing

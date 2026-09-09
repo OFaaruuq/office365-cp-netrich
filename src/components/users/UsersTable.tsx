@@ -44,10 +44,12 @@ export default function UsersTable({
   initialUsers,
   totalCount = 189,
   customerId,
+  readOnly = false,
 }: {
   initialUsers: PortalUser[];
   totalCount?: number;
   customerId?: string;
+  readOnly?: boolean;
 }) {
   const [users, setUsers] = useState(initialUsers);
   const [query, setQuery] = useState("");
@@ -95,6 +97,7 @@ export default function UsersTable({
   const qs = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
 
   async function handleSync() {
+    if (readOnly) return;
     setSyncing(true);
     setSyncMessage(null);
     try {
@@ -128,6 +131,7 @@ export default function UsersTable({
 
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     setBusy(true);
     setSyncMessage(null);
     try {
@@ -155,6 +159,7 @@ export default function UsersTable({
   }
 
   async function patchUser(userId: string, body: Record<string, unknown>) {
+    if (readOnly) return;
     setBusy(true);
     try {
       const res = await portalFetch(`/api/users${qs}`, {
@@ -180,24 +185,34 @@ export default function UsersTable({
           <h1 className="nt-page-title mb-1">Users</h1>
           <p className="text-sm text-nt-text-muted">
             <span className="font-semibold text-nt-text">{users.length || totalCount}</span> Microsoft
-            365 users — create, block, and assign licenses (Foundation directory store)
+            365 users
+            {readOnly
+              ? " — read-only inspection of this tenant directory"
+              : " — create, block, and assign licenses (Foundation directory store)"}
           </p>
         </div>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-nt-border bg-white p-3 shadow-xs">
-        <button type="button" className="nt-btn-primary" onClick={() => setShowAdd((v) => !v)}>
-          Add User
-        </button>
-        <button
-          type="button"
-          onClick={handleSync}
-          disabled={syncing}
-          className="nt-btn-outline inline-flex items-center gap-2"
-        >
-          {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          User Sync
-        </button>
+        {!readOnly && (
+          <>
+            <button type="button" className="nt-btn-primary" onClick={() => setShowAdd((v) => !v)}>
+              Add User
+            </button>
+            <button
+              type="button"
+              onClick={handleSync}
+              disabled={syncing}
+              className="nt-btn-outline inline-flex items-center gap-2"
+            >
+              {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+              User Sync
+            </button>
+          </>
+        )}
+        {readOnly && (
+          <span className="text-xs font-semibold text-nt-text-muted">Read-only · partner inspect</span>
+        )}
         <div className="relative ml-auto min-w-[240px] flex-1 max-w-md">
           <Search
             size={16}
@@ -213,7 +228,7 @@ export default function UsersTable({
         </div>
       </div>
 
-      {showAdd && (
+      {showAdd && !readOnly && (
         <form onSubmit={handleAdd} className="nt-card mb-4 grid gap-3 p-4 sm:grid-cols-4">
           <input
             className="nt-input"
@@ -280,7 +295,7 @@ export default function UsersTable({
                     Licenses <ArrowDownUp size={12} />
                   </button>
                 </th>
-                <th className="px-5 py-3.5">Actions</th>
+                <th className="px-5 py-3.5">{readOnly ? "" : "Actions"}</th>
               </tr>
             </thead>
             <tbody>
@@ -297,6 +312,9 @@ export default function UsersTable({
                     {user.licenses.length > 0 ? user.licenses.join(", ") : "—"}
                   </td>
                   <td className="px-5 py-3">
+                    {readOnly ? (
+                      <span className="text-xs text-nt-text-muted">—</span>
+                    ) : (
                     <div className="flex flex-wrap gap-2">
                       {user.status === "blocked" ? (
                         <button
@@ -338,6 +356,7 @@ export default function UsersTable({
                         Licenses
                       </button>
                     </div>
+                    )}
                   </td>
                 </tr>
               ))}

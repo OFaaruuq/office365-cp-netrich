@@ -44,7 +44,7 @@ export default function AdminTenantDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = String(params.id || "");
-  const { isPartner, ready, user } = useSession();
+  const { isPartner, ready, user, refreshSession } = useSession();
   const headers = useSuperAdminHeaders();
   const [customer, setCustomer] = useState<ClientTenant | null>(null);
   const [audit, setAudit] = useState<
@@ -328,6 +328,7 @@ export default function AdminTenantDetailPage() {
         banner: data.session?.banner || `Viewing ${customer?.name || id} as Partner Administrator`,
         readOnly: true,
       });
+      await refreshSession();
       router.push(`/dashboard?customerId=${encodeURIComponent(id)}`);
     } finally {
       setSaving(false);

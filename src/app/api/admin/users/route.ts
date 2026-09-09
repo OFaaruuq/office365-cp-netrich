@@ -18,6 +18,7 @@ import {
   setAccountPassword,
 } from "@/lib/auth/password-store";
 import { writeAudit } from "@/lib/audit-log";
+import { isDemoLoginAllowed } from "@/lib/auth/demo-mode";
 import type { PortalRole } from "@/lib/tenancy-types";
 
 function withExtras(accountId: string) {
@@ -82,6 +83,15 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const kind = String(body.kind || "client");
   const password = body.password != null ? String(body.password) : "";
+  if (!password && !isDemoLoginAllowed()) {
+    return NextResponse.json(
+      {
+        error: "Password required (at least 12 characters, including letters and numbers).",
+        code: "PASSWORD_REQUIRED",
+      },
+      { status: 400 }
+    );
+  }
 
   if (kind === "staff") {
     const role = String(body.role || "") as PortalRole;
@@ -119,7 +129,7 @@ export async function POST(request: NextRequest) {
       account: { ...result, ...withExtras(result.id) },
       message: password
         ? "Staff account created with custom password. MFA enrollment required on first sign-in."
-        : "Staff account created (default demo password until you set one). MFA enrollment required on first sign-in.",
+        : "Staff account created with the shared demo password. MFA enrollment required on first sign-in.",
     });
   }
 
@@ -155,7 +165,7 @@ export async function POST(request: NextRequest) {
     account: { ...result, ...withExtras(result.id) },
     message: password
       ? "Client Admin created with custom password. MFA enrollment required on first sign-in."
-      : "Client Admin created (default demo password until you set one). MFA enrollment required on first sign-in.",
+      : "Client Admin created with the shared demo password. MFA enrollment required on first sign-in.",
   });
 }
 
@@ -248,6 +258,15 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (action === "clear_password") {
+    if (!isDemoLoginAllowed()) {
+      return NextResponse.json(
+        {
+          error: "Cannot clear a password while demo login is disabled. Set a new password instead.",
+          code: "PASSWORD_REQUIRED",
+        },
+        { status: 400 }
+      );
+    }
     clearAccountPassword(accountId);
     writeAudit({
       action: "users.password_change",
