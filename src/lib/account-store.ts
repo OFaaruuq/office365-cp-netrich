@@ -52,6 +52,25 @@ export function findPortalAccountByEmail(email: string): PortalAccount | undefin
   return listPortalAccounts().find((a) => a.email.toLowerCase() === needle);
 }
 
+export function findPortalAccountByEntraOid(oid: string): PortalAccount | undefined {
+  const needle = oid.trim();
+  if (!needle) return undefined;
+  return listPortalAccounts().find((a) => a.entraOid === needle);
+}
+
+export function bindEntraIdentity(
+  accountId: string,
+  claims: { oid?: string; tid?: string }
+): PortalAccount | undefined {
+  const current = getPortalAccount(accountId);
+  if (!current) return undefined;
+  return persistOverride({
+    ...current,
+    entraOid: claims.oid || current.entraOid,
+    entraTid: claims.tid || current.entraTid,
+  });
+}
+
 export function listClientAdminAccounts(customerId?: string): PortalAccount[] {
   return listPortalAccounts().filter(
     (a) =>

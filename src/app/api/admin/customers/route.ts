@@ -141,6 +141,28 @@ export async function POST(request: NextRequest) {
   customers.unshift(normalizeCustomer(customer));
   saveCustomers(customers);
 
+  try {
+    const { cspApiBase, cspInternalHeaders } = await import("@/lib/csp-api");
+    const { SESSION_COOKIE, LEGACY_SESSION_COOKIE } = await import("@/lib/auth/server-session");
+    const token =
+      request.cookies.get(SESSION_COOKIE)?.value || request.cookies.get(LEGACY_SESSION_COOKIE)?.value;
+    await fetch(`${cspApiBase()}/v1/customers`, {
+      method: "POST",
+      headers: cspInternalHeaders(auth.session, undefined, token),
+      body: JSON.stringify({
+        name,
+        domain,
+        adminEmail,
+        microsoftTenantId: customer.microsoftTenantId,
+        notes: config.notes,
+      }),
+      signal: AbortSignal.timeout(8000),
+      cache: "no-store",
+    });
+  } catch {
+    /* Nest optional dual-write */
+  }
+
   const clientAccount = upsertClientAdminAccount({
     customerId: customer.id,
     name: `${name} Admin`,

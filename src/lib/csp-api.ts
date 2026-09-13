@@ -19,15 +19,22 @@ export function cspInternalSecret(): string {
 /** Headers Next attaches after authenticating the portal session. Never taken from the browser. */
 export function cspInternalHeaders(
   session?: Pick<ServerSession, "role" | "accountId" | "customerId">,
-  customerId?: string
+  customerId?: string,
+  sessionToken?: string
 ): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     "content-type": "application/json",
     "x-csp-internal-secret": cspInternalSecret(),
-    "x-portal-role": session?.role || "",
-    "x-user-id": session?.accountId || "",
-    "x-customer-id": customerId || session?.customerId || "",
   };
+  if (sessionToken) {
+    headers["x-portal-session"] = sessionToken;
+  }
+  if (session) {
+    headers["x-portal-role"] = session.role || "";
+    headers["x-user-id"] = session.accountId || "";
+    headers["x-customer-id"] = customerId || session.customerId || "";
+  }
+  return headers;
 }
 
 export async function cspFetch(path: string, init: RequestInit = {}) {

@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Patch, NotFoundException } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, NotFoundException } from "@nestjs/common";
 import { OnboardingStepKey } from "@prisma/client";
 import { withTenantContext } from "../../../libs/prisma";
 import { CurrentTenant, RequirePartnerAdmin, type TenantContext } from "../../../libs/guards";
@@ -7,6 +7,18 @@ import { summarizeOnboarding } from "./customers.controller";
 @RequirePartnerAdmin()
 @Controller("onboarding")
 export class OnboardingController {
+  @Get(":customerId")
+  async get(@CurrentTenant() tenant: TenantContext, @Param("customerId") customerId: string) {
+    return withTenantContext(tenant, async (tx) => {
+      const customer = await tx.customer.findFirst({
+        where: { OR: [{ id: customerId }, { legacyId: customerId }] },
+      });
+      if (!customer) throw new NotFoundException({ error: "Not found", code: "NOT_FOUND" });
+      const steps = await tx.onboardingStep.findMany({ where: { customerId: customer.id } });
+      return { onboarding: summarizeOnboarding(steps) };
+    });
+  }
+
   @Patch(":customerId/steps/:stepKey")
   async completeStep(
     @CurrentTenant() tenant: TenantContext,

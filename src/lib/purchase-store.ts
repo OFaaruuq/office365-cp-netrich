@@ -7,6 +7,7 @@ import { randomBytes } from "crypto";
 import { getCatalogProduct } from "@/lib/catalog-store";
 import { subscribeProduct } from "@/lib/subscription-store";
 import { findCustomer } from "@/lib/customer-store";
+import { loadPlatform, savePlatform } from "@/lib/platform-store";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const FILE = path.join(DATA_DIR, "purchase-orders.json");
@@ -137,6 +138,16 @@ export function createPurchaseRequest(input: {
   const data = load();
   data.orders.unshift(order);
   save(data);
+  const platform = loadPlatform();
+  platform.orders.unshift({
+    id: order.id,
+    customerId: order.customerId,
+    status: "AWAITING_APPROVAL",
+    items: [{ name: order.productName, qty: order.quantity, unitPrice: order.unitPrice }],
+    createdAt: order.requestedAt,
+    updatedAt: order.updatedAt,
+  });
+  savePlatform(platform);
   return { order };
 }
 

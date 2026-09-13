@@ -41,7 +41,7 @@ export class HealthController {
       stage: "foundation",
       postgres,
       redis,
-      workers: "stub",
+      workers: redis === "healthy" ? "listening" : redis,
       microsoft: sam.components,
       timestamp: new Date().toISOString(),
     };

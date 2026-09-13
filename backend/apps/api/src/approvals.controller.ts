@@ -90,7 +90,45 @@ export class ApprovalsController {
           decidedAt: new Date(),
         },
       });
-      return { approval: item };
+      if (body.decision !== "approved") {
+        return { approval: item };
+      }
+      const op = item.operation || "";
+      if (item.customerId && /(suspend|TERMINATING|terminate|delete|lifecycle)/i.test(op)) {
+        const customer = await tx.customer.findFirst({
+          where: { OR: [{ id: item.customerId }, { legacyId: item.customerId }] },
+        });
+        if (customer) {
+          if (/suspend/i.test(op)) {
+            await tx.customer.update({
+              where: { id: customer.id },
+              data: { status: "suspended", lifecycle: "SUSPENDED", portalAccessEnabled: false },
+            });
+          } else {
+            await tx.customer.update({
+              where: { id: customer.id },
+              data: { lifecycle: "TERMINATING", portalAccessEnabled: false },
+            });
+          }
+        }
+      }
+      const executed = await tx.privilegedApproval.update({
+        where: { id },
+        data: { status: "executed", executedAt: new Date() },
+      });
+      await tx.auditEvent.create({
+        data: {
+          action: "approval.executed",
+          actorType: "user",
+          actorUserId: tenant.userId,
+          targetCustomerId: item.customerId,
+          result: "ok",
+          riskLevel: "high",
+          approvalId: item.id,
+          detail: `Executed ${item.operation}`,
+        },
+      });
+      return { approval: executed, executed: true };
     });
   }
 }

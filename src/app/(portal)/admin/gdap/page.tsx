@@ -100,11 +100,21 @@ export default function AdminGdapPage() {
               </ul>
             </div>
             <div className="flex gap-3 pt-1 text-xs">
-              <button type="button" className="nt-btn-outline py-1.5 text-xs" disabled>
+              <Link href={`/admin/tenants/${g.customer?.id || ""}`} className="nt-btn-outline py-1.5 text-xs">
                 Review permissions
-              </button>
-              <button type="button" className="nt-link text-xs" disabled>
-                Renew (Phase 2)
+              </Link>
+              <button
+                type="button"
+                className="nt-link text-xs"
+                onClick={() => {
+                  void portalFetch(`/api/csp/gdap/${g.id}/renew`, { method: "POST", body: "{}" }).then(() =>
+                    portalFetch("/api/csp/gdap")
+                      .then((r) => r.json())
+                      .then((d) => setRows(d.relationships || []))
+                  );
+                }}
+              >
+                Renew locally
               </button>
             </div>
           </div>

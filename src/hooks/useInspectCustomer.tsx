@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/components/auth/SessionProvider";
-import { portalFetch } from "@/lib/admin-api";
 
 const VIEW_AS_KEY = "nt_view_as_customer";
 const INSPECT_KEY = "nt_inspect_customer";
@@ -154,20 +153,12 @@ export function InspectTenantGate({
   title?: string;
   children: (customerId: string) => React.ReactNode;
 }) {
-  const { customerId, customerName, needsPick, isPartner, setInspectCustomer, clearInspectCustomer } =
-    useInspectCustomer();
-  const [rows, setRows] = useState<Array<{ id: string; name: string; domain: string; status: string }>>(
-    []
-  );
+  const { customerId, customerName, isPartner, source } = useInspectCustomer();
+  const { user } = useSession();
+  const sessionInspect = Boolean(user?.inspect?.customerId);
+  const needsAuditedViewAs = Boolean(isPartner && !sessionInspect);
 
-  useEffect(() => {
-    if (!needsPick) return;
-    void portalFetch("/api/csp/customers")
-      .then((r) => r.json())
-      .then((d) => setRows(d.customers || []));
-  }, [needsPick]);
-
-  if (!needsPick && customerId) {
+  if (!needsAuditedViewAs && customerId) {
     return (
       <>
         {isPartner && (
@@ -175,14 +166,8 @@ export function InspectTenantGate({
             <span>
               Inspecting{" "}
               <strong className="text-nt-purple">{customerName || customerId}</strong>
+              {source === "view-as" ? " (audited view-as)" : ""}
             </span>
-            <button
-              type="button"
-              className="font-semibold text-nt-purple underline"
-              onClick={() => clearInspectCustomer()}
-            >
-              Change tenant
-            </button>
             <Link href="/admin/tenants" className="nt-link">
               All customers
             </Link>
@@ -193,37 +178,19 @@ export function InspectTenantGate({
     );
   }
 
-  if (!needsPick) return null;
+  if (!isPartner && customerId) {
+    return <>{children(customerId)}</>;
+  }
 
   return (
     <div className="nt-fade-in">
       <div className="nt-card max-w-xl p-6">
-        <h1 className="text-lg font-semibold">{title || "Select a customer to inspect"}</h1>
+        <h1 className="text-lg font-semibold">{title || "Start view-as-customer"}</h1>
         <p className="mt-2 text-sm text-nt-text-muted">
-          Partner Inspect workspace is tenant-isolated. Choose a customer, or start View-as from the
-          tenant profile.
+          Partner workspace inspect requires an audited view-as session (reason and duration) from the
+          tenant profile. SessionStorage-only tenant picks are not allowed.
         </p>
-        <ul className="mt-4 max-h-80 space-y-2 overflow-y-auto">
-          {rows.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                className="nt-card flex w-full items-center justify-between p-3 text-left hover:border-nt-purple"
-                onClick={() => setInspectCustomer(c.id, c.name)}
-              >
-                <span>
-                  <span className="font-semibold">{c.name}</span>
-                  <span className="block text-xs text-nt-text-muted">{c.domain}</span>
-                </span>
-                <span className="text-[11px] uppercase text-nt-text-subtle">{c.status}</span>
-              </button>
-            </li>
-          ))}
-          {rows.length === 0 && (
-            <li className="text-sm text-nt-text-muted">No customers yet. Create one under All Customers.</li>
-          )}
-        </ul>
-        <Link href="/admin/tenants" className="nt-btn-outline mt-4 inline-flex text-xs">
+        <Link href="/admin/tenants" className="nt-btn-primary mt-4 inline-flex text-xs">
           Open All Customers
         </Link>
       </div>

@@ -25,7 +25,17 @@ BEGIN
     'feature_flags',
     'jobs',
     'job_attempts',
-    'idempotency_keys'
+    'idempotency_keys',
+    'directory_users',
+    'directory_groups',
+    'subscriptions',
+    'orders',
+    'order_items',
+    'invoices',
+    'security_snapshots',
+    'support_threads',
+    'support_messages',
+    'integrations'
   ]
   LOOP
     BEGIN
@@ -172,3 +182,18 @@ CREATE POLICY tenant_isolation ON idempotency_keys
     app_is_partner_admin()
     OR (customer_id IS NOT NULL AND app_customer_matches(customer_id))
   );
+
+CREATE POLICY tenant_isolation ON directory_users FOR ALL USING (app_customer_matches(customer_id)) WITH CHECK (app_customer_matches(customer_id));
+CREATE POLICY tenant_isolation ON directory_groups FOR ALL USING (app_customer_matches(customer_id)) WITH CHECK (app_customer_matches(customer_id));
+CREATE POLICY tenant_isolation ON subscriptions FOR ALL USING (app_customer_matches(customer_id)) WITH CHECK (app_customer_matches(customer_id));
+CREATE POLICY tenant_isolation ON orders FOR ALL USING (app_customer_matches(customer_id)) WITH CHECK (app_customer_matches(customer_id));
+CREATE POLICY tenant_isolation ON order_items FOR ALL USING (
+  app_is_partner_admin() OR order_id IN (SELECT id FROM orders WHERE app_customer_matches(customer_id))
+);
+CREATE POLICY tenant_isolation ON invoices FOR ALL USING (app_customer_matches(customer_id)) WITH CHECK (app_customer_matches(customer_id));
+CREATE POLICY tenant_isolation ON security_snapshots FOR ALL USING (app_customer_matches(customer_id)) WITH CHECK (app_customer_matches(customer_id));
+CREATE POLICY tenant_isolation ON support_threads FOR ALL USING (app_customer_matches(customer_id)) WITH CHECK (app_customer_matches(customer_id));
+CREATE POLICY tenant_isolation ON support_messages FOR ALL USING (
+  app_is_partner_admin() OR thread_id IN (SELECT id FROM support_threads WHERE app_customer_matches(customer_id))
+);
+CREATE POLICY tenant_isolation ON integrations FOR ALL USING (app_customer_matches(customer_id)) WITH CHECK (app_customer_matches(customer_id));

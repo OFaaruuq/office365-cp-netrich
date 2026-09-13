@@ -2,6 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 import path from "path";
 import { getDemoPassword, isDemoLoginAllowed } from "@/lib/auth/demo-mode";
+import { getPortalAccount } from "@/lib/account-store";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const FILE = path.join(DATA_DIR, "account-passwords.json");
@@ -91,8 +92,9 @@ export function clearAccountPassword(accountId: string) {
 
 /**
  * Verify login password:
- * 1) Custom per-account password if set by Super Admin
- * 2) Otherwise shared demo password (local/dev)
+ * 1) Custom per-account hash (required for every client admin)
+ * 2) Shared demo password only for partner_admin in non-production demo mode
+ *    — never a cross-tenant client fallback.
  */
 export function verifyAccountPassword(accountId: string, password: string): boolean {
   if (!password) return false;
@@ -101,5 +103,7 @@ export function verifyAccountPassword(accountId: string, password: string): bool
     return verifyHash(password, rec.hash);
   }
   if (!isDemoLoginAllowed()) return false;
+  const account = getPortalAccount(accountId);
+  if (account?.role !== "partner_admin") return false;
   return password === getDemoPassword();
 }

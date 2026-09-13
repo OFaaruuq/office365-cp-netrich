@@ -26,21 +26,31 @@ import {
 import { cspApiBase, cspInternalHeaders } from "@/lib/csp-api";
 import { PERMISSIONS, ROLE_PACKS, LEGACY_ROLE_MAP } from "@/lib/rbac-catalog";
 import type { ServerSession } from "@/lib/auth/server-session";
+import { SESSION_COOKIE, LEGACY_SESSION_COOKIE } from "@/lib/auth/server-session";
+import { listDirectoryGroups, listDirectoryUsers } from "@/lib/directory-store";
+import { executeLocalApproval } from "@/lib/approval-execute";
+import { listTenantSubscriptions } from "@/lib/subscription-store";
+
+function sessionTokenFrom(request: NextRequest) {
+  return request.cookies.get(SESSION_COOKIE)?.value || request.cookies.get(LEGACY_SESSION_COOKIE)?.value;
+}
 
 async function tryNest(
   path: string,
   session: ServerSession,
-  customerId?: string,
+  customerId: string | undefined,
+  request: NextRequest,
   init?: RequestInit
 ): Promise<Response | null> {
+  const write = Boolean(init?.method && init.method !== "GET");
   try {
     const res = await fetch(`${cspApiBase()}${path}`, {
       ...init,
       headers: {
-        ...cspInternalHeaders(session, customerId),
+        ...cspInternalHeaders(session, customerId, sessionTokenFrom(request)),
         ...(init?.headers || {}),
       },
-      signal: AbortSignal.timeout(1500),
+      signal: AbortSignal.timeout(write ? 8000 : 1500),
       cache: "no-store",
     });
     if (res.ok) return res;
@@ -76,7 +86,7 @@ export async function GET(
   const { session } = access;
   const scopedCustomerId = access.customerId;
 
-  const nest = await tryNest(`/v1/${joined}${url.search}`, session, scopedCustomerId);
+  const nest = await tryNest(`/v1/${joined}${url.search}`, session, scopedCustomerId, request);
   if (
     nest &&
     (joined === "health" ||
@@ -85,7 +95,13 @@ export async function GET(
       joined.startsWith("rbac") ||
       joined === "flags" ||
       joined.startsWith("microsoft") ||
-      joined === "audit")
+      joined === "audit" ||
+      joined === "jobs" ||
+      joined === "notifications" ||
+      joined.startsWith("approvals") ||
+      joined.startsWith("onboarding") ||
+      joined.startsWith("directory") ||
+      joined.startsWith("commerce"))
   ) {
     const data = await nest.json();
     return NextResponse.json({ ...data, source: "nest" });
@@ -123,20 +139,24 @@ export async function GET(
 
   if (joined === "renewals") {
     const days = Number(url.searchParams.get("days") || 90);
-    let renewals = renewalsWindow(days);
+    let scoped = renewalsWindow(Math.max(days, 90));
     if (session.role !== "partner_admin") {
-      renewals = renewals.filter((r) => r.customerId === session.customerId);
+      scoped = scoped.filter((r) => r.customerId === session.customerId);
     } else {
       const filterId = partnerListCustomerId(url, session, scopedCustomerId);
-      if (filterId) renewals = renewals.filter((r) => r.customerId === filterId);
+      if (filterId) scoped = scoped.filter((r) => r.customerId === filterId);
     }
+    const within = (n: number) => {
+      const cutoff = Date.now() + n * 864e5;
+      return scoped.filter((r) => new Date(r.renewal).getTime() <= cutoff);
+    };
     return NextResponse.json({
       days,
-      renewals,
+      renewals: within(days),
       summary: {
-        d30: renewalsWindow(30).length,
-        d60: renewalsWindow(60).length,
-        d90: renewalsWindow(90).length,
+        d30: within(30).length,
+        d60: within(60).length,
+        d90: within(90).length,
       },
       source: "local",
     });
@@ -373,6 +393,42 @@ export async function GET(
     return NextResponse.json({ domains: rows, source: "local" });
   }
 
+  if (joined === "groups") {
+    if (!scopedCustomerId) {
+      return NextResponse.json(
+        { error: "Specify customerId to open an isolated tenant workspace.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({
+      groups: listDirectoryGroups(scopedCustomerId),
+      source: "local-directory",
+    });
+  }
+
+  if (joined === "licenses") {
+    if (!scopedCustomerId) {
+      return NextResponse.json(
+        { error: "Specify customerId to open an isolated tenant workspace.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
+    const users = listDirectoryUsers(scopedCustomerId);
+    const { listTenantSubscriptions } = await import("@/lib/subscription-store");
+    const subscriptions = listTenantSubscriptions(scopedCustomerId);
+    const assigned = users.flatMap((u) => u.licenses || []);
+    return NextResponse.json({
+      subscriptions,
+      assignedByUser: users.map((u) => ({ id: u.id, email: u.email, displayName: u.displayName, licenses: u.licenses })),
+      totals: {
+        purchased: subscriptions.reduce((n, s) => n + s.purchased, 0),
+        used: subscriptions.reduce((n, s) => n + s.used, 0),
+        assigned: assigned.length,
+      },
+      source: "local",
+    });
+  }
+
   if (joined === "service-health") {
     if (!scopedCustomerId) {
       return NextResponse.json(
@@ -596,6 +652,64 @@ export async function POST(
     return res;
   }
 
+  if (joined === "admin-access/end") {
+    const auth = await requirePartnerAdmin(request);
+    if ("error" in auth) return auth.error;
+    const data = loadFoundation();
+    const inspect = activeInspect(auth.session);
+    if (inspect) {
+      for (const s of data.adminAccess) {
+        if (s.customerId === inspect.customerId && !s.endedAt) {
+          (s as { endedAt?: string }).endedAt = new Date().toISOString();
+        }
+      }
+      saveFoundation(data);
+    }
+    const res = NextResponse.json({ ok: true, source: "local" });
+    await applySessionCookie(res, {
+      accountId: auth.session.accountId,
+      name: auth.session.name,
+      email: auth.session.email,
+      role: auth.session.role,
+      customerId: auth.session.customerId,
+      customerName: auth.session.customerName,
+      team: auth.session.team,
+      title: auth.session.title,
+    });
+    return res;
+  }
+
+  if (joined === "jobs") {
+    const auth = await requirePartnerAdmin(request);
+    if ("error" in auth) return auth.error;
+    const name = String(body.name || "maintenance.ping");
+    const queue = String(body.queue || "maintenance");
+    const job: (typeof platform.jobs)[number] = {
+      id: `job-${Date.now().toString(36)}`,
+      name,
+      queue,
+      customerId: body.customerId ? String(body.customerId) : undefined,
+      status: "queued",
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    platform.jobs.unshift(job);
+    savePlatform(platform);
+    const nestJob = await tryNest("/v1/jobs", auth.session, job.customerId, request, {
+      method: "POST",
+      body: JSON.stringify({ name, queue, customerId: job.customerId, payload: body.payload || {} }),
+    });
+    if (nestJob) {
+      const data = await nestJob.json();
+      return NextResponse.json({ ...data, source: "nest" });
+    }
+    job.status = "succeeded";
+    job.updatedAt = new Date().toISOString();
+    savePlatform(platform);
+    return NextResponse.json({ job, source: "local", detail: "Queued locally (Nest worker not reachable)." });
+  }
+
   if (joined === "approvals") {
     const auth = await requirePartnerAdmin(request);
     if ("error" in auth) return auth.error;
@@ -638,6 +752,12 @@ export async function POST(
     item.decidedAt = new Date().toISOString();
     item.approverEmail = auth.session.email;
     savePlatform(platform);
+    if (item.status === "approved") {
+      const executed = executeLocalApproval(item.id, auth.session.email);
+      if ("approval" in executed) {
+        return NextResponse.json({ approval: executed.approval, source: "local", executed: true });
+      }
+    }
     return NextResponse.json({ approval: item, source: "local" });
   }
 
@@ -798,6 +918,16 @@ export async function PATCH(
 
   const body = await request.json().catch(() => ({}));
   const platform = loadPlatform();
+
+  const nestPatch = await tryNest(`/v1/${joined}`, access.session, access.customerId, request, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  if (nestPatch && (joined.startsWith("onboarding/") || joined.startsWith("notifications/"))) {
+    const data = await nestPatch.json();
+    /* still apply local dual-write below */
+    void data;
+  }
 
   const m = joined.match(/^onboarding\/([^/]+)\/steps\/([^/]+)$/);
   if (m) {

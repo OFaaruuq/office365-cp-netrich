@@ -4,6 +4,7 @@ import { findCustomer } from "@/lib/customer-store";
 import { changeSubscriptionSeats, listTenantSubscriptions } from "@/lib/subscription-store";
 import { writeAudit } from "@/lib/audit-log";
 import { createPurchaseRequest } from "@/lib/purchase-store";
+import { nceEligibility } from "@/lib/nce-eligibility";
 import { loadPlatform, savePlatform } from "@/lib/platform-store";
 
 /** List this tenant's subscriptions (isolated) */
@@ -40,6 +41,11 @@ export async function POST(request: NextRequest) {
   const productId = String(body.productId || "");
   const quantity = Number(body.quantity || 0);
   const billingCycle = (body.billingCycle || "Monthly") as "Monthly" | "Annual" | "Triennial";
+
+  const nce = nceEligibility({ action: "purchase", quantity, billingCycle });
+  if (!nce.allowed) {
+    return NextResponse.json({ error: nce.reason, code: nce.code }, { status: 400 });
+  }
 
   const result = createPurchaseRequest({
     customerId: client.customerId,

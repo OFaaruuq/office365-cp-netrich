@@ -54,6 +54,9 @@ function isTenantForced(joined: string): boolean {
   return (
     joined === "contacts" ||
     joined === "domains" ||
+    joined === "groups" ||
+    joined === "licenses" ||
+    matchesPrefix(joined, "directory") ||
     matchesPrefix(joined, "service-health") ||
     matchesPrefix(joined, "security") ||
     matchesPrefix(joined, "license-optimization") ||

@@ -73,6 +73,8 @@ export interface PortalAccount {
   disabled?: boolean;
   /** Soft-deleted by Super Admin (hidden from lists; login blocked) */
   deleted?: boolean;
+  entraOid?: string;
+  entraTid?: string;
 }
 
 export interface SessionUser {

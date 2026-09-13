@@ -7,8 +7,8 @@ Multi-tenant CSP control panel for **netrichtechnologies**.
 | Maturity | Status |
 |----------|--------|
 | **MVP UI** | Live — Next.js portal, demo auth, local commerce, hard isolation |
-| **Phase 1 Foundation** | Complete (local SoR) — NestJS/Prisma, Entra-primary path, SAM stubs, GDAP/onboarding, price/quotes/renewals, jobs/DLQ, sessions, notifications, security, approvals, break-glass |
-| **Phase 2–3** | Planned — live Graph / Partner Center read-only, then NCE commerce |
+| **Phase 1 Foundation** | In-repo — NestJS/Prisma, Entra session mint, SAM/Graph token path when configured, GDAP/onboarding, local commerce + NCE rules, jobs/notifications APIs |
+| **Phase 2–3** | Live Graph / Partner Center when credentials are set; NCE Partner Center writes remain disabled until `PARTNER_CENTER_WRITES_ENABLED=true` |
 
 ## Documentation index
 
@@ -43,7 +43,7 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000).
 
 1. **Sign in with Microsoft** if `NEXT_PUBLIC_AZURE_AD_CLIENT_ID` is set.
-2. Or demo: `admin@netrichtechnologies.com` / `demo` → Google Authenticator MFA.
+2. Or demo (dev only): `admin@netrichtechnologies.com` / `demo` → Google Authenticator MFA. Client admins need unique passwords set by Super Admin.
 3. Tenants are never listed on the public login page.
 
 ### Partner Control Center URLs

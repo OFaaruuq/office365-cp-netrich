@@ -218,15 +218,22 @@ export async function resolveTenantScope(
   }
 
   if (session.role === "partner_admin") {
-    const customerId = new URL(request.url).searchParams.get("customerId");
-    if (!customerId) {
+    const inspect = activeInspect(session);
+    if (!inspect) {
       return {
-        error: NextResponse.json(
-          {
-            error: "Specify customerId to open an isolated tenant workspace.",
-            code: "CUSTOMER_REQUIRED",
-          },
-          { status: 400 }
+        error: forbidden(
+          "Start an audited view-as-customer session from the tenant profile (reason required).",
+          "VIEW_AS_REQUIRED"
+        ),
+      };
+    }
+    const requested = new URL(request.url).searchParams.get("customerId");
+    const customerId = requested || inspect.customerId;
+    if (requested && requested !== inspect.customerId) {
+      return {
+        error: forbidden(
+          "View-as session is bound to a different tenant.",
+          "TENANT_ISOLATION"
         ),
       };
     }

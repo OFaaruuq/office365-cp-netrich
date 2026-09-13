@@ -83,6 +83,15 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const kind = String(body.kind || "client");
   const password = body.password != null ? String(body.password) : "";
+  if (kind !== "staff" && !password) {
+    return NextResponse.json(
+      {
+        error: "Client admins require a unique password (at least 12 characters, letters and numbers).",
+        code: "PASSWORD_REQUIRED",
+      },
+      { status: 400 }
+    );
+  }
   if (!password && !isDemoLoginAllowed()) {
     return NextResponse.json(
       {

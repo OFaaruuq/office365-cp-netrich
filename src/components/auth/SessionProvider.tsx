@@ -210,9 +210,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           "Set NEXT_PUBLIC_AZURE_AD_CLIENT_ID to enable Microsoft Entra SSO (production identity).",
       };
     }
-    const { PublicClientApplication } = await import("@azure/msal-browser");
-    const { msalConfig, loginRequest } = await import("@/lib/msal-config");
-    const pca = new PublicClientApplication(msalConfig);
+    const pca = (await import("@/components/auth/AuthProvider")).getMsalInstance();
+    if (!pca) {
+      return { mode: "unavailable" as const, message: "Microsoft sign-in is not available in this browser." };
+    }
+    const { loginRequest } = await import("@/lib/msal-config");
     await pca.initialize();
     await pca.loginRedirect(loginRequest);
     return { mode: "redirect" as const };

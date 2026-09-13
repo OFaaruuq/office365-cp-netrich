@@ -15,29 +15,16 @@ export default function Page() {
 
 function Body({ customerId }: { customerId: string }) {
   const [groups, setGroups] = useState<
-    Array<{ id: string; name: string; type: string; members: number }>
+    Array<{ id: string; name: string; type: string; members: number; source?: string }>
   >([]);
+  const [source, setSource] = useState("local-directory");
 
   useEffect(() => {
-    void portalFetch(`/api/users?customerId=${encodeURIComponent(customerId)}`)
+    void portalFetch(`/api/csp/groups?customerId=${encodeURIComponent(customerId)}`)
       .then((r) => r.json())
       .then((d) => {
-        const n = (d.users || []).length;
-        setGroups([
-          { id: "g-all", name: "All Users", type: "Security", members: n },
-          {
-            id: "g-admins",
-            name: "Global Administrators",
-            type: "DirectoryRole",
-            members: Math.min(3, n),
-          },
-          {
-            id: "g-m365",
-            name: "Microsoft 365 Licensed",
-            type: "Dynamic",
-            members: Math.max(1, n - 1),
-          },
-        ]);
+        setGroups(d.groups || []);
+        setSource(d.source || "local-directory");
       });
   }, [customerId]);
 
@@ -45,18 +32,28 @@ function Body({ customerId }: { customerId: string }) {
     <div className="nt-fade-in">
       <AdminHero
         title="Groups"
-        subtitle="Directory and security groups (Foundation derived; Graph sync in Phase 2)."
+        subtitle={
+          source === "graph"
+            ? "Microsoft Graph groups for this tenant."
+            : "Derived from this tenant’s directory (license assignment groups). Graph groups appear after a successful directory sync."
+        }
       />
       <div className="space-y-2">
         {groups.map((g) => (
           <div key={g.id} className="nt-card flex items-center justify-between p-4">
             <div>
               <div className="font-semibold">{g.name}</div>
-              <div className="text-xs text-nt-text-muted">{g.type}</div>
+              <div className="text-xs text-nt-text-muted">
+                {g.type}
+                {g.source ? ` · ${g.source}` : ""}
+              </div>
             </div>
             <div className="text-sm text-nt-text-muted">{g.members} members</div>
           </div>
         ))}
+        {groups.length === 0 && (
+          <div className="nt-card p-6 text-sm text-nt-text-muted">No groups for this tenant yet.</div>
+        )}
       </div>
     </div>
   );

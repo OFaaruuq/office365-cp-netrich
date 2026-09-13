@@ -123,6 +123,14 @@ model Customer {
   adminAccessSessions AdminAccessSession[]
   graphSyncStates  GraphSyncState[]
   notifications    Notification[]
+  directoryUsers   DirectoryUser[]
+  directoryGroups  DirectoryGroup[]
+  subscriptions    CspSubscription[]
+  orders           CspOrder[]
+  invoices         CspInvoice[]
+  securitySnapshots SecuritySnapshot[]
+  supportThreads   SupportThread[]
+  integrations     IntegrationConnector[]
 
   @@index([partnerId])
   @@index([status])
@@ -527,4 +535,167 @@ model SystemSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")
+}
+
+model DirectoryUser {
+  id              String    @id @default(uuid())
+  customerId      String    @map("customer_id")
+  graphUserId     String?   @map("graph_user_id")
+  displayName     String    @map("display_name")
+  email           String
+  upn             String?
+  status          String
+  licenses        Json
+  syncedFromGraph Boolean   @default(false) @map("synced_from_graph")
+  lastSyncedAt    DateTime? @map("last_synced_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, email])
+  @@index([customerId])
+  @@map("directory_users")
+}
+
+model DirectoryGroup {
+  id         String @id @default(uuid())
+  customerId String @map("customer_id")
+  graphId    String? @map("graph_id")
+  name       String
+  type       String
+  members    Int    @default(0)
+  source     String @default("local")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("directory_groups")
+}
+
+model CspSubscription {
+  id            String   @id @default(uuid())
+  customerId    String   @map("customer_id")
+  skuId         String?  @map("sku_id")
+  name          String
+  purchased     Int      @default(0)
+  used          Int      @default(0)
+  billingCycle  String   @default("Monthly") @map("billing_cycle")
+  unitPrice     Float    @default(0) @map("unit_price")
+  nextRenewalAt DateTime? @map("next_renewal_at")
+  status        String   @default("active")
+  partnerCenterId String? @map("partner_center_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("subscriptions")
+}
+
+model CspOrder {
+  id          String   @id @default(uuid())
+  customerId  String   @map("customer_id")
+  status      String
+  totalAmount Float    @default(0) @map("total_amount")
+  currency    String   @default("USD")
+  createdBy   String   @map("created_by")
+  payload     Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  items       CspOrderItem[]
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("orders")
+}
+
+model CspOrderItem {
+  id         String @id @default(uuid())
+  orderId    String @map("order_id")
+  skuId      String? @map("sku_id")
+  name       String
+  quantity   Int
+  unitPrice  Float  @map("unit_price")
+  action     String @default("add")
+
+  order CspOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_items")
+}
+
+model CspInvoice {
+  id          String   @id @default(uuid())
+  customerId  String   @map("customer_id")
+  partnerCenterId String? @map("partner_center_id")
+  amount      Float
+  currency    String   @default("USD")
+  status      String   @default("open")
+  periodStart DateTime? @map("period_start")
+  periodEnd   DateTime? @map("period_end")
+  issuedAt    DateTime  @default(now()) @map("issued_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("invoices")
+}
+
+model SecuritySnapshot {
+  id           String   @id @default(uuid())
+  customerId   String   @map("customer_id")
+  secureScore  Int      @default(0) @map("secure_score")
+  mfaPercent   Int      @default(0) @map("mfa_percent")
+  threatCount  Int      @default(0) @map("threat_count")
+  payload      Json?
+  capturedAt   DateTime @default(now()) @map("captured_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("security_snapshots")
+}
+
+model SupportThread {
+  id         String   @id @default(uuid())
+  customerId String   @map("customer_id")
+  subject    String
+  status     String   @default("queued")
+  team       String
+  createdAt  DateTime @default(now()) @map("created_at")
+  messages   SupportMessage[]
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("support_threads")
+}
+
+model SupportMessage {
+  id        String   @id @default(uuid())
+  threadId  String   @map("thread_id")
+  sender    String
+  body      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  thread SupportThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@map("support_messages")
+}
+
+model IntegrationConnector {
+  id         String   @id @default(uuid())
+  customerId String   @map("customer_id")
+  provider   String
+  status     String   @default("disconnected")
+  secretsRef String?  @map("secrets_ref")
+  config     Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, provider])
+  @@map("integrations")
 }

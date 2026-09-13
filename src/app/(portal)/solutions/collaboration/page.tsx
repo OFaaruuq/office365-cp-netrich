@@ -37,6 +37,7 @@ export default function CollaborationPage() {
     teamsActiveUsers: 0,
     sharePointSites: 0,
     meetings30d: 0,
+    source: "derived-from-directory",
   };
 
   const tools = [
@@ -44,19 +45,25 @@ export default function CollaborationPage() {
       title: "Microsoft Teams",
       description: "Chat, meetings, calling, and collaboration for your workforce.",
       icon: MessageSquare,
-      metric: `${collab.teamsActiveUsers} active users`,
+      metric: `${collab.teamsActiveUsers} licensed/active users (directory)`,
     },
     {
       title: "SharePoint Online",
       description: "Intranet, document libraries, and team sites.",
       icon: Users,
-      metric: `${collab.sharePointSites} sites`,
+      metric:
+        collab.source === "derived-from-directory" && collab.sharePointSites === 0
+          ? "Not measured until Graph sync"
+          : `${collab.sharePointSites} sites`,
     },
     {
       title: "Microsoft Stream / Meetings",
       description: "Video meetings and recorded content across your organization.",
       icon: Video,
-      metric: `${collab.meetings30d} meetings (30d)`,
+      metric:
+        collab.source === "derived-from-directory" && collab.meetings30d === 0
+          ? "Not measured until Graph sync"
+          : `${collab.meetings30d} meetings (30d)`,
     },
   ];
 

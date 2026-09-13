@@ -182,6 +182,8 @@ export type PlatformFile = {
     payload?: Record<string, unknown>;
     createdAt: string;
     decidedAt?: string;
+    executedAt?: string;
+    executedBy?: string;
     approverEmail?: string;
   }>;
   idempotency: Array<{

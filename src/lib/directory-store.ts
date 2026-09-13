@@ -82,6 +82,39 @@ export function updateDirectoryUser(
   return users[idx];
 }
 
+export function replaceDirectoryUsers(customerId: string, users: PortalUser[]) {
+  const file = loadFile();
+  file[customerId] = users;
+  saveFile(file);
+  return users;
+}
+
+export function listDirectoryGroups(customerId: string) {
+  const users = listDirectoryUsers(customerId);
+  const byLicense = new Map<string, number>();
+  for (const u of users) {
+    for (const lic of u.licenses || []) {
+      byLicense.set(lic, (byLicense.get(lic) || 0) + 1);
+    }
+  }
+  return [
+    {
+      id: `${customerId}-g-all`,
+      name: "All directory users",
+      type: "Security",
+      members: users.length,
+      source: "local-directory" as const,
+    },
+    ...[...byLicense.entries()].map(([name, members]) => ({
+      id: `${customerId}-g-lic-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+      name: `${name} assigned`,
+      type: "AssignedLicense",
+      members,
+      source: "local-directory" as const,
+    })),
+  ];
+}
+
 export function rollupDirectoryUsers(customerId: string) {
   const users = listDirectoryUsers(customerId);
   return {

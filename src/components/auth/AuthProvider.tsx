@@ -7,7 +7,7 @@ import { msalConfig } from "@/lib/msal-config";
 
 let msalInstance: PublicClientApplication | null = null;
 
-function getMsalInstance() {
+export function getMsalInstance() {
   if (typeof window === "undefined") return null;
   if (!msalInstance) {
     msalInstance = new PublicClientApplication(msalConfig);
@@ -25,7 +25,35 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
     pca
       .initialize()
-      .then(() => {
+      .then(async () => {
+        try {
+          const redirect = await pca.handleRedirectPromise();
+          if (redirect?.account) {
+            pca.setActiveAccount(redirect.account);
+            const minted = await fetch("/api/auth/entra", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                accessToken: redirect.accessToken,
+                idToken: redirect.idToken,
+              }),
+            });
+            const data = (await minted.json().catch(() => ({}))) as { user?: { role?: string } };
+            const role = data.user?.role;
+            const home =
+              role === "partner_admin"
+                ? "/admin"
+                : role === "support_technical" || role === "support_billing"
+                  ? "/support"
+                  : "/dashboard";
+            window.location.replace(home);
+            return;
+          }
+        } catch {
+          /* redirect hash may already be consumed */
+        }
+
         const accounts = pca.getAllAccounts();
         if (accounts.length > 0) {
           pca.setActiveAccount(accounts[0]);

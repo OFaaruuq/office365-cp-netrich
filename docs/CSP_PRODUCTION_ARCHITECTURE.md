@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Status** | Phase 1 Foundation **complete** for local/Postgres SoR modules (dual-write to `.data` + Nest when up). Live Graph/Partner Center = Phase 2. |
+| **Status** | Phase 1 Foundation in-repo: local `.data` SoR plus Nest/Postgres write-through when the API is up. Graph/Partner Center live when credentials are set. PC writes stay off unless `PARTNER_CENTER_WRITES_ENABLED=true`. |
 | **UI** | Next.js (`office365.cp.netrichtechnologies.com`) |
 | **API** | NestJS (`api.office365.cp.netrichtechnologies.com`, local `:8080`) |
 | **System of record** | PostgreSQL + RLS |

@@ -173,7 +173,7 @@ Split-screen login · Entra button · Demo credentials → MFA · Explore Plans 
 | `/admin/microsoft/integration` | Platform / SAM health |
 | `/admin/security/audit` | Audit trail |
 | `/admin/platform/flags` | Feature flags |
-| `/admin/commerce/*`, `/admin/billing/*` | Coming Soon (Phase 2–3) |
+| `/admin/commerce/*`, `/admin/billing/*` | Local quotes, orders, invoices (NCE rules; Partner Center writes disabled until configured) |
 
 **Tenant lifecycle:** `pending` → `active` · `suspended` · soft **`TERMINATING`** (default delete) · hard purge with `force=true`.
 
@@ -185,7 +185,7 @@ Split-screen login · Entra button · Demo credentials → MFA · Explore Plans 
 | `/catalog/*` | Allowed catalogs only |
 | `/solutions/*` | Collaboration, Email & Data, Security |
 | `/support` | Chat / inbox by role |
-| `/workspace/*` | Domains, service health, billing, renewals, groups, org, admins, notifications, audit (shells / Phase 2) |
+| `/workspace/*` | Domains, groups, licenses, Azure, service health, billing, renewals, org, admins, notifications, audit |
 
 ### 5.4 Support
 

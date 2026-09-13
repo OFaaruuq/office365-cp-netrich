@@ -20,6 +20,7 @@ import type { PermissionKey } from "./rbac";
 import { ROLE_PACKS, LEGACY_ROLE_MAP } from "./rbac";
 import { withTenantContext } from "./prisma";
 import { validateEntraAccessToken, type EntraClaims } from "./entra";
+import { decodePortalSessionToken } from "./portal-session";
 
 export const IS_PUBLIC_KEY = "is_public";
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
@@ -183,28 +184,34 @@ export class TenantContextGuard implements CanActivate {
       throw new UnauthorizedException({ code: "UNAUTHORIZED" });
     }
 
-    const roleHeader = header(req, "x-portal-role");
-    if (!roleHeader || !PORTAL_ROLES.has(roleHeader)) {
+    const sessionToken = header(req, "x-portal-session");
+    const claims = decodePortalSessionToken(sessionToken);
+    if (!claims) {
+      throw new UnauthorizedException({
+        code: "SESSION_REQUIRED",
+        message: "CSP API requires a verified portal session token",
+      });
+    }
+    if (!PORTAL_ROLES.has(claims.role)) {
       throw new ForbiddenException({
         code: "ROLE_DENIED",
         message: "Unknown or missing portal role",
       });
     }
-    const customerId = header(req, "x-customer-id") || null;
-    const userId = header(req, "x-user-id") || undefined;
-    if (roleHeader === "customer_admin" && !customerId) {
+    const customerId = claims.customerId || null;
+    if (claims.role === "customer_admin" && !customerId) {
       throw new ForbiddenException({
         code: "NO_TENANT",
         message: "Session is not bound to a client tenant.",
       });
     }
 
-    const packKey = LEGACY_ROLE_MAP[roleHeader] || roleHeader;
+    const packKey = LEGACY_ROLE_MAP[claims.role] || claims.role;
     const pack = ROLE_PACKS.find((p) => p.key === packKey);
     req.tenantContext = {
-      userId,
+      userId: claims.accountId,
       customerId,
-      role: roleHeader,
+      role: claims.role,
       permissions: pack?.permissions || [],
       authSource: "internal",
     };

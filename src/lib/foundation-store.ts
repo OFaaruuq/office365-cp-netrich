@@ -59,6 +59,7 @@ export type FoundationFile = {
     readOnly: boolean;
     startedAt: string;
     expiresAt: string;
+    endedAt?: string;
   }>;
   auditExtra: Array<Record<string, unknown>>;
 };
@@ -74,7 +75,7 @@ function defaultFlags() {
   return [
     { key: "partner_control_center", description: "Partner Control Center nav", enabledGlobal: true },
     { key: "customer_nav_v2", description: "Customer portal nav v2", enabledGlobal: true },
-    { key: "azure_management", description: "Azure CSP management", enabledGlobal: false },
+    { key: "azure_management", description: "Azure CSP management", enabledGlobal: true },
     { key: "security_center", description: "Expanded security center", enabledGlobal: true },
     { key: "license_optimizer", description: "License optimization", enabledGlobal: false },
     { key: "new_checkout", description: "NCE checkout", enabledGlobal: false },

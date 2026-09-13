@@ -1,5 +1,5 @@
 import { Controller, Get } from "@nestjs/common";
-import { getSamConfigStatus, acquirePartnerTokenStub } from "../../../libs/sam";
+import { getSamConfigStatus, acquirePartnerToken } from "../../../libs/sam";
 import { RequirePartnerAdmin } from "../../../libs/guards";
 
 @RequirePartnerAdmin()
@@ -12,6 +12,6 @@ export class MicrosoftController {
 
   @Get("token")
   async token() {
-    return acquirePartnerTokenStub();
+    return acquirePartnerToken();
   }
 }

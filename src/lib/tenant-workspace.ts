@@ -31,6 +31,7 @@ export type TenantWorkspace = {
     threatEvents30d: number;
     secureScore: number;
     lastAssessedAt: string;
+    source?: string;
   };
   /** Isolated solution-path adoption for this tenant only */
   solutions: {
@@ -38,11 +39,13 @@ export type TenantWorkspace = {
       teamsActiveUsers: number;
       sharePointSites: number;
       meetings30d: number;
+      source?: string;
     };
     emailData: {
       mailboxes: number;
       oneDriveGB: number;
       sharePointGB: number;
+      source?: string;
     };
   };
 };
@@ -122,25 +125,27 @@ export function getTenantWorkspace(customerId: string): TenantWorkspace | null {
   const subscriptions = seedTenantSubscriptionsIfEmpty(customerId, seedRows);
   const monthly = Number(subscriptions.reduce((n, s) => n + s.price, 0).toFixed(2));
 
-  // Deterministic per-tenant security metrics (isolated, not global)
-  const hash = customerId.split("").reduce((n, ch) => n + ch.charCodeAt(0), 0);
+  const licensed = users.filter((u) => (u.licenses || []).length > 0).length;
   const securityPosture = {
-    mfaPercent: Math.min(99, 70 + (hash % 25)),
-    threatEvents30d: hash % 17,
-    secureScore: Math.min(95, 55 + (hash % 35)),
+    mfaPercent: 0,
+    threatEvents30d: 0,
+    secureScore: 0,
     lastAssessedAt: customer.lastSyncAt || new Date().toISOString(),
+    source: "local-unmeasured",
   };
 
   const solutions = {
     collaboration: {
-      teamsActiveUsers: Math.max(1, Math.round(active * 0.85)),
-      sharePointSites: Math.max(1, Math.round(3 + (hash % 12) * scale)),
-      meetings30d: Math.max(0, Math.round(20 + (hash % 80) * scale)),
+      teamsActiveUsers: licensed || active,
+      sharePointSites: 0,
+      meetings30d: 0,
+      source: "derived-from-directory",
     },
     emailData: {
       mailboxes: Math.max(1, active + blocked),
-      oneDriveGB: Math.max(10, Math.round(customer.usersCount * 12 * scale) || 48),
-      sharePointGB: Math.max(5, Math.round(40 + (hash % 200) * scale)),
+      oneDriveGB: 0,
+      sharePointGB: 0,
+      source: "derived-from-directory",
     },
   };
 

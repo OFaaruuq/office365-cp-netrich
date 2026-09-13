@@ -12,6 +12,9 @@ import { AuditController } from "./audit.controller";
 import { AdminAccessController } from "./admin-access.controller";
 import { OnboardingController } from "./onboarding.controller";
 import { ApprovalsController } from "./approvals.controller";
+import { DirectoryController } from "./directory.controller";
+import { JobsController } from "./jobs.controller";
+import { NotificationsController } from "./notifications.controller";
 import {
   InternalAuthGuard,
   PartnerAdminGuard,
@@ -32,6 +35,9 @@ import {
     AdminAccessController,
     OnboardingController,
     ApprovalsController,
+    DirectoryController,
+    JobsController,
+    NotificationsController,
   ],
   providers: [
     { provide: APP_GUARD, useClass: InternalAuthGuard },

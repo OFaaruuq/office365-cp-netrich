@@ -325,10 +325,10 @@ export default function Sidebar() {
               <Section title="Microsoft 365" open={open.m365} onToggle={() => toggle("m365")}>
                 <NavLink href="/users" label="Users" icon={Users} active={pathname === "/users"} />
                 <NavLink
-                  href="/products"
+                  href="/workspace/licenses"
                   label="Licenses"
                   icon={Package}
-                  active={pathname === "/products"}
+                  active={pathname.startsWith("/workspace/licenses")}
                 />
                 <NavLink
                   href="/workspace/groups"
@@ -366,6 +366,12 @@ export default function Sidebar() {
                     active={pathname === link.href}
                   />
                 ))}
+                <NavLink
+                  href="/workspace/azure"
+                  label="Azure"
+                  icon={Cloud}
+                  active={pathname.startsWith("/workspace/azure")}
+                />
                 <NavLink
                   href="/workspace/orders"
                   label="Orders"

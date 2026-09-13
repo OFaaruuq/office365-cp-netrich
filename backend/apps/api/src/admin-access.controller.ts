@@ -68,4 +68,20 @@ export class AdminAccessController {
       };
     });
   }
+
+  @Post("end")
+  async end(@CurrentTenant() tenant: TenantContext) {
+    if (!tenant.userId) {
+      throw new BadRequestException({ code: "INVALID_INPUT", message: "Authenticated actor is required" });
+    }
+    return withTenantContext(tenant, async (tx) => {
+      const open = await tx.adminAccessSession.findMany({
+        where: { actorUserId: tenant.userId, endedAt: null },
+      });
+      for (const s of open) {
+        await tx.adminAccessSession.update({ where: { id: s.id }, data: { endedAt: new Date() } });
+      }
+      return { ok: true, ended: open.length };
+    });
+  }
 }
