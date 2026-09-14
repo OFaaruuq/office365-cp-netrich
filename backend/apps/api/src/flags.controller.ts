@@ -1,10 +1,11 @@
 import { Controller, Get, Query } from "@nestjs/common";
 import { withTenantContext } from "../../../libs/prisma";
-import { CurrentTenant, RequirePartnerAdmin, type TenantContext } from "../../../libs/guards";
+import { CurrentTenant, RequirePartnerAdmin, RequirePermissions, type TenantContext } from "../../../libs/guards";
 
 @RequirePartnerAdmin()
 @Controller("flags")
 export class FlagsController {
+  @RequirePermissions("platform.admin")
   @Get()
   async list(
     @CurrentTenant() tenant: TenantContext,

@@ -10,24 +10,10 @@ import { applySessionCookie } from "@/lib/auth/server-session";
 import { writeAudit } from "@/lib/audit-log";
 import { getMe } from "@/lib/graph";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { verifyEntraJwt } from "@/lib/auth/entra-token";
+import { bootstrapAdminEmail } from "@/lib/auth/demo-mode";
+import { createStaffAccount, getPortalAccount } from "@/lib/account-store";
 import type { PortalAccount } from "@/lib/tenancy-types";
-
-function claimsFromJwt(token: string): { oid?: string; tid?: string; email?: string; name?: string } {
-  try {
-    const payload = token.split(".")[1];
-    if (!payload) return {};
-    const json = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
-    const parsed = JSON.parse(json) as Record<string, unknown>;
-    return {
-      oid: parsed.oid ? String(parsed.oid) : undefined,
-      tid: parsed.tid ? String(parsed.tid) : undefined,
-      email: String(parsed.preferred_username || parsed.email || parsed.upn || "").toLowerCase() || undefined,
-      name: parsed.name ? String(parsed.name) : undefined,
-    };
-  } catch {
-    return {};
-  }
-}
 
 function customerGate(account: PortalAccount): { ok: true; customerName?: string } | { ok: false; error: string } {
   if (account.role !== "customer_admin") return { ok: true };
@@ -38,6 +24,20 @@ function customerGate(account: PortalAccount): { ok: true; customerName?: string
     return { ok: false, error: "Portal access is locked for this tenant. Contact netrichtechnologies Super Admin." };
   }
   return { ok: true, customerName: live.name };
+}
+
+function provisionBootstrapAdmin(email: string, name: string, oid?: string, tid?: string): PortalAccount | undefined {
+  if (email !== bootstrapAdminEmail()) return undefined;
+  const existing = findPortalAccountByEmail(email);
+  if (existing) return existing;
+  const created = createStaffAccount({
+    name: name || "Partner Super Admin",
+    email,
+    role: "partner_admin",
+  });
+  if ("error" in created) return undefined;
+  if (oid) bindEntraIdentity(created.id, { oid, tid });
+  return getPortalAccount(created.id);
 }
 
 export async function POST(request: NextRequest) {
@@ -52,23 +52,31 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}));
   const accessToken = String(body.accessToken || "").trim();
-  const idToken = String(body.idToken || "").trim();
-  if (!accessToken && !idToken) {
+  if (!accessToken) {
     return NextResponse.json({ error: "accessToken is required", code: "MISSING_TOKEN" }, { status: 400 });
   }
 
-  const jwtClaims = claimsFromJwt(idToken || accessToken);
-  let email = jwtClaims.email || "";
-  let displayName = jwtClaims.name || "";
+  const jwtClaims = await verifyEntraJwt(accessToken);
+  let email = jwtClaims
+    ? String(jwtClaims.preferred_username || jwtClaims.email || jwtClaims.upn || "").trim().toLowerCase()
+    : "";
+  let displayName = jwtClaims?.name ? String(jwtClaims.name) : "";
+  let graphOk = false;
 
-  if (accessToken) {
-    try {
-      const me = await getMe(accessToken);
-      email = String(me.mail || me.userPrincipalName || "").trim().toLowerCase() || email;
-      displayName = me.displayName || displayName;
-    } catch {
-      /* Graph /me failed — fall back to ID token claims only if present */
-    }
+  try {
+    const me = await getMe(accessToken);
+    graphOk = true;
+    email = String(me.mail || me.userPrincipalName || "").trim().toLowerCase() || email;
+    displayName = me.displayName || displayName;
+  } catch {
+    graphOk = false;
+  }
+
+  if (!jwtClaims && !graphOk) {
+    return NextResponse.json(
+      { error: "Microsoft token could not be verified.", code: "TOKEN_INVALID" },
+      { status: 401 }
+    );
   }
 
   if (!email) {
@@ -78,9 +86,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const account =
-    (jwtClaims.oid ? findPortalAccountByEntraOid(jwtClaims.oid) : undefined) ||
-    findPortalAccountByEmail(email);
+  let account: PortalAccount | undefined =
+    (jwtClaims?.oid ? findPortalAccountByEntraOid(String(jwtClaims.oid)) : undefined) ||
+    findPortalAccountByEmail(email) ||
+    provisionBootstrapAdmin(email, displayName, jwtClaims?.oid ? String(jwtClaims.oid) : undefined, jwtClaims?.tid ? String(jwtClaims.tid) : undefined);
 
   if (!account || account.disabled || account.deleted) {
     writeAudit({
@@ -89,7 +98,7 @@ export async function POST(request: NextRequest) {
       actorEmail: email,
       actorRole: "unknown",
       detail: "Entra SSO — portal account not provisioned",
-      meta: { ip, oid: jwtClaims.oid || null, tid: jwtClaims.tid || null },
+      meta: { ip, oid: jwtClaims?.oid || null, tid: jwtClaims?.tid || null },
     });
     return NextResponse.json(
       {
@@ -106,7 +115,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: gate.error, code: "PORTAL_LOCKED" }, { status: 403 });
   }
 
-  bindEntraIdentity(account.id, { oid: jwtClaims.oid, tid: jwtClaims.tid });
+  bindEntraIdentity(account.id, {
+    oid: jwtClaims?.oid ? String(jwtClaims.oid) : undefined,
+    tid: jwtClaims?.tid ? String(jwtClaims.tid) : undefined,
+  });
 
   writeAudit({
     action: "auth.login",
@@ -115,7 +127,7 @@ export async function POST(request: NextRequest) {
     actorRole: account.role,
     customerId: account.customerId,
     detail: "Signed in with Microsoft Entra ID",
-    meta: { ip, oid: jwtClaims.oid || null, tid: jwtClaims.tid || null },
+    meta: { ip, oid: jwtClaims?.oid || null, tid: jwtClaims?.tid || null },
   });
 
   const res = NextResponse.json({

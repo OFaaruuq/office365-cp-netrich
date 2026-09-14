@@ -87,6 +87,35 @@ export default function PartnerOrdersPage() {
     }
   }
 
+  async function recordPayment(id: string) {
+    const paymentRef = window.prompt(
+      "Payment reference (required — bank transfer, invoice number, or receipt ID)"
+    );
+    if (!paymentRef?.trim()) {
+      setError("Payment reference is required.");
+      return;
+    }
+    setBusyId(id);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await portalFetch("/api/commerce/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "pay", paymentRef: paymentRef.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to record payment");
+        return;
+      }
+      setMessage(data.message || "Payment recorded");
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function invoiceFromOrder(o: PurchaseOrder) {
     setBusyId(o.id);
     setMessage(null);
@@ -133,7 +162,7 @@ export default function PartnerOrdersPage() {
     <div className="nt-fade-in">
       <AdminHero
         title="Purchase orders"
-        subtitle="Client catalog requests. Approve to unlock payment; licenses issue only after the client pays in full."
+        subtitle="Client catalog requests. Approve, then record payment with a reference before licenses are issued."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/admin/commerce/quotes" className="nt-btn-on-brand text-xs">
@@ -237,6 +266,16 @@ export default function PartnerOrdersPage() {
               o.status === "PAID" ||
               o.status === "FULFILLED") && (
               <div className="mt-3 flex flex-wrap gap-2">
+                {(o.status === "AWAITING_PAYMENT" || o.status === "APPROVED") && (
+                  <button
+                    type="button"
+                    className="nt-btn-primary text-xs"
+                    disabled={busyId === o.id}
+                    onClick={() => void recordPayment(o.id)}
+                  >
+                    {busyId === o.id ? "Working…" : "Record payment"}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="nt-btn-outline text-xs"

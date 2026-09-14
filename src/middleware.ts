@@ -6,12 +6,14 @@ const PUBLIC_PATHS = new Set([
   "/api/auth/session",
   "/api/auth/personas",
   "/api/auth/mfa",
+  "/api/auth/entra",
 ]);
 
 function isPublic(pathname: string) {
   if (PUBLIC_PATHS.has(pathname)) return true;
   if (pathname.startsWith("/_next")) return true;
   if (pathname.startsWith("/favicon")) return true;
+  if (pathname.startsWith("/api/webhooks/")) return true;
   return false;
 }
 

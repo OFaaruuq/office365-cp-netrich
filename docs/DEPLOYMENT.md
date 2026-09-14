@@ -64,7 +64,7 @@ PowerShell wrapper: `.\scripts\deploy-production.ps1 -Docker`
 ## Production checklist
 
 1. `PORTAL_SESSION_SECRET` ≥ 32 chars (required — app refuses to boot without it)
-2. `ALLOW_DEMO_LOGIN=false` (Entra SSO is the production path)
+2. `NEXT_PUBLIC_AZURE_AD_CLIENT_ID` set (Entra SSO is the production path)
 3. Entra app registration redirect URI includes `https://office365.cp.netrichtechnologies.com`
 4. Persist `.data` volume (quotes, invoices, purchase orders, MFA secrets)
 5. Backups for `.data` and Postgres (if `--with-backend`)

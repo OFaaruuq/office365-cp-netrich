@@ -15,6 +15,10 @@ import { ApprovalsController } from "./approvals.controller";
 import { DirectoryController } from "./directory.controller";
 import { JobsController } from "./jobs.controller";
 import { NotificationsController } from "./notifications.controller";
+import { CommerceController } from "./commerce.controller";
+import { TelemetryController } from "./telemetry.controller";
+import { WebhooksController } from "./webhooks.controller";
+import { GraphSyncController } from "./graph-sync.controller";
 import {
   InternalAuthGuard,
   PartnerAdminGuard,
@@ -38,6 +42,10 @@ import {
     DirectoryController,
     JobsController,
     NotificationsController,
+    CommerceController,
+    TelemetryController,
+    WebhooksController,
+    GraphSyncController,
   ],
   providers: [
     { provide: APP_GUARD, useClass: InternalAuthGuard },

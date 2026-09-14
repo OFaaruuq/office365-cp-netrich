@@ -56,7 +56,7 @@ export default function ClientOrdersPage() {
     if (ready && isClient) void load();
   }, [ready, isClient, load]);
 
-  async function act(id: string, action: "pay" | "cancel") {
+  async function act(id: string, action: "cancel") {
     setBusyId(id);
     setMessage(null);
     setError(null);
@@ -98,7 +98,7 @@ export default function ClientOrdersPage() {
     <div className="nt-fade-in">
       <AdminHero
         title="Orders"
-        subtitle="Request → Super Admin approval → full payment → licenses. Browse catalogs to submit a new order."
+        subtitle="Request → Super Admin approval → partner records payment → licenses. Browse catalogs to submit a new order."
         actions={
           <Link href="/catalog/microsoft-365" className="nt-btn-on-brand text-xs">
             Browse catalogs
@@ -146,14 +146,9 @@ export default function ClientOrdersPage() {
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {(o.status === "AWAITING_PAYMENT" || o.status === "APPROVED") && (
-                <button
-                  type="button"
-                  className="nt-btn-primary text-xs"
-                  disabled={busyId === o.id}
-                  onClick={() => void act(o.id, "pay")}
-                >
-                  {busyId === o.id ? "Processing…" : "Pay in full & get licenses"}
-                </button>
+                <p className="text-xs text-nt-text-muted">
+                  Awaiting netrichtechnologies to confirm payment. Licenses issue after Super Admin records a payment reference.
+                </p>
               )}
               {o.status === "REQUESTED" && (
                 <button

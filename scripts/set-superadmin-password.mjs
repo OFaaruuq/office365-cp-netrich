@@ -5,7 +5,7 @@
  * Usage:
  *   node scripts/set-superadmin-password.mjs                 # interactive prompt
  *   node scripts/set-superadmin-password.mjs "YourPass123"   # set password
- *   node scripts/set-superadmin-password.mjs --clear         # remove custom password (falls back to demo)
+ *   node scripts/set-superadmin-password.mjs --clear         # remove stored password (Entra-only until a new password is set for break-glass)
  *   node scripts/set-superadmin-password.mjs --generate      # create random password + set it
  *   node scripts/set-superadmin-password.mjs --email other@x.com "Pass"
  *   node scripts/set-superadmin-password.mjs --reset-mfa     # also clear MFA enrollment
@@ -90,8 +90,8 @@ function ensurePartnerAccount(account) {
 }
 
 function setPassword(accountId, password, updatedBy = "cli-set-superadmin-password") {
-  if (!password || password.trim().length < 6) {
-    console.error("Password must be at least 6 characters.");
+  if (!password || password.trim().length < 12) {
+    console.error("Password must be at least 12 characters.");
     process.exit(1);
   }
   const all = loadJson(PASSWORDS_FILE, {});
@@ -107,7 +107,7 @@ function setPassword(accountId, password, updatedBy = "cli-set-superadmin-passwo
 function clearPassword(accountId) {
   const all = loadJson(PASSWORDS_FILE, {});
   if (!all[accountId]) {
-    console.log("No custom password stored (already using demo fallback if ALLOW_DEMO_LOGIN).");
+    console.log("No stored password for this account (Entra SSO only until a unique emergency password is set).");
     return;
   }
   delete all[accountId];
@@ -246,7 +246,7 @@ async function main() {
     console.log("  (copy now — it will not be shown again)");
   }
   console.log("");
-  console.log("Sign in at / with this email + password, then complete MFA.");
+  console.log("Sign in at / with Microsoft Entra ID. Password + MFA is break-glass emergency access only.");
 }
 
 main().catch((e) => {

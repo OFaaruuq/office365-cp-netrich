@@ -5,7 +5,7 @@ Phase 1 **Foundation** API for the Microsoft 365 Control Panel.
 | Service | Port / role |
 |---------|-------------|
 | **API** (`apps/api`) | `:8080` — NestJS REST under `/v1` (+ `/health`) |
-| **Worker** (`apps/worker`) | BullMQ stub consumers |
+| **Worker** (`apps/worker`) | BullMQ consumers (Graph/PC/webhooks; inline if Redis is down) |
 | **PostgreSQL** | System of record + RLS helpers |
 | **Redis** | Job queues / cache |
 
@@ -89,14 +89,20 @@ Global prefix: `/v1` (except `/health`).
 | `GET` | `/v1/microsoft/integration` | SAM / Key Vault status (no secrets) |
 | `GET` | `/v1/audit` | Compliance audit events |
 | `POST` | `/v1/admin-access` | Start view-as-customer session |
-| `GET`/`POST` | `/v1/approvals` | Privileged-op approval stubs |
+| `GET`/`POST` | `/v1/approvals` | Privileged-op four-eyes + execute |
+| `GET`/`POST` | `/v1/directory/*` | Directory users/groups + Graph sync |
+| `GET`/`POST` | `/v1/jobs` | Enqueue / list / retry |
+| `GET` | `/v1/subscriptions` `/v1/orders` `/v1/invoices` | Commerce SoR |
+| `GET` | `/v1/service-health` `/v1/security` | Graph telemetry (or not_configured) |
+| `GET` | `/v1/microsoft/partner-center/customers` | Partner Center read-only |
+| `POST` | `/v1/webhooks/:provider` | Signed webhook ingress |
 
 ## Layout
 
 ```
 backend/
   apps/api/src/       Nest controllers + request-id middleware
-  apps/worker/src/    BullMQ stub worker
+  apps/worker/src/    BullMQ worker
   libs/               prisma, entra, sam, rbac, guards
   prisma/             schema, migrations, seed, rls*.sql
   scripts/            migrate-from-data.ts
@@ -107,7 +113,7 @@ backend/
 
 - **No Partner Center write commerce** in Phase 1.
 - Auth for Microsoft APIs is **per-operation** (App+User + GDAP consent vs partner app credentials) — not universal “app-only + GDAP”.
-- Demo email/TOTP stays on the **Next.js** app for local use; Nest Entra path is the production identity model.
+- Everyday sign-in is **Microsoft Entra ID** on the Next.js app; Nest validates Entra access tokens for API sessions.
 - Secrets belong in **Key Vault**, not Git or plaintext Postgres.
 
 ## Next.js bridge

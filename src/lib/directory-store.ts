@@ -1,12 +1,12 @@
 /**
  * Per-tenant Microsoft directory users (Foundation SoR overlay).
- * Seeds from workspace mock; mutations persist to .data/directory-users.json.
+ * Empty until Graph sync or a local create — never seeded from mock tenants.
  */
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 import path from "path";
 import { randomBytes } from "crypto";
 import type { PortalUser, UserStatus } from "@/lib/types";
-import { getTenantWorkspace } from "@/lib/tenant-workspace";
+import { DEMO_CUSTOMER_IDS } from "@/lib/tenancy-data";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const FILE = path.join(DATA_DIR, "directory-users.json");
@@ -23,7 +23,17 @@ function atomicWrite(filePath: string, contents: string) {
 function loadFile(): FileShape {
   try {
     if (!existsSync(FILE)) return {};
-    return JSON.parse(readFileSync(FILE, "utf8")) as FileShape;
+    const parsed = JSON.parse(readFileSync(FILE, "utf8")) as FileShape;
+    if (!parsed || typeof parsed !== "object") return {};
+    let changed = false;
+    for (const id of Object.keys(parsed)) {
+      if (DEMO_CUSTOMER_IDS.has(id)) {
+        delete parsed[id];
+        changed = true;
+      }
+    }
+    if (changed) saveFile(parsed);
+    return parsed;
   } catch {
     return {};
   }
@@ -34,13 +44,9 @@ function saveFile(data: FileShape) {
 }
 
 export function listDirectoryUsers(customerId: string): PortalUser[] {
+  if (DEMO_CUSTOMER_IDS.has(customerId)) return [];
   const file = loadFile();
-  if (file[customerId]?.length) return file[customerId];
-  const ws = getTenantWorkspace(customerId);
-  const seeded = ws?.users || [];
-  file[customerId] = seeded;
-  saveFile(file);
-  return seeded;
+  return file[customerId] || [];
 }
 
 export function createDirectoryUser(

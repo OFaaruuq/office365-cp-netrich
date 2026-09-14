@@ -6,6 +6,7 @@ import { formatGdap } from "./customers.controller";
 @RequirePartnerAdmin()
 @Controller("gdap")
 export class GdapController {
+  @RequirePermissions("gdap.read")
   @Get()
   async list(
     @CurrentTenant() tenant: TenantContext,

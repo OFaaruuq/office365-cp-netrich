@@ -1,22 +1,7 @@
-import { PrismaClient, OnboardingStepKey } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { PERMISSIONS, ROLE_PACKS } from "../libs/rbac";
 
 const prisma = new PrismaClient();
-
-const ALL_STEPS: OnboardingStepKey[] = [
-  "customer_created",
-  "microsoft_tenant_identified",
-  "csp_relationship",
-  "gdap_relationship",
-  "customer_accepted",
-  "application_consent",
-  "permissions_verified",
-  "graph_sync",
-  "partner_center_sync",
-  "pricing_configured",
-  "client_admin_created",
-  "portal_activated",
-];
 
 async function main() {
   const partner = await prisma.partner.upsert({
@@ -107,104 +92,25 @@ async function main() {
     });
   }
 
-  // Demo customer with GDAP + onboarding if none exist
-  const existing = await prisma.customer.count();
-  if (existing === 0) {
-    const customer = await prisma.customer.create({
-      data: {
-        partnerId: partner.id,
-        name: "Demo Customer",
-        domain: "demo.example.com",
-        status: "pending",
-        adminEmail: "admin@demo.example.com",
-        allowedCatalogs: ["microsoft-365"],
-        legacyId: "cust-demo",
-        microsoftTenants: {
-          create: {
-            entraTenantId: "00000000-0000-0000-0000-000000000001",
-            displayName: "Demo Customer",
-            defaultDomain: "demo.example.com",
-            isPrimary: true,
-            domains: {
-              create: {
-                name: "demo.example.com",
-                isVerified: true,
-                isPrimary: true,
-              },
-            },
-          },
-        },
-        contacts: {
-          create: [
-            { type: "PRIMARY", email: "admin@demo.example.com", name: "Demo Admin" },
-            { type: "BILLING", email: "billing@demo.example.com" },
-            { type: "TECHNICAL", email: "tech@demo.example.com" },
-          ],
-        },
-      },
-    });
-
-    for (const step of ALL_STEPS) {
-      const completed = step === "customer_created" || step === "microsoft_tenant_identified";
-      await prisma.onboardingStep.create({
-        data: {
-          customerId: customer.id,
-          stepKey: step,
-          completed,
-          completedAt: completed ? new Date() : null,
-        },
-      });
-    }
-
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 97);
-    await prisma.gdapRelationship.create({
-      data: {
-        customerId: customer.id,
-        microsoftRelationshipId: "GDAP-DEMO-001",
-        displayName: "Netrich ↔ Demo Customer",
-        status: "active",
-        activatedAt: new Date(),
-        expiresAt,
-        durationDays: 180,
-        roles: {
-          create: [
-            { roleDefinitionId: "fe930be7-5e62-47db-91af-98c3a49a38b1", roleName: "User Administrator" },
-            { roleDefinitionId: "4d6ac14f-3453-41d6-8982-aa0a9165608b", roleName: "License Administrator" },
-            { roleDefinitionId: "f023fd81-a637-4b56-95fd-791ac713ca11", roleName: "Service Support Administrator" },
-            { roleDefinitionId: "729827e3-9c14-49f7-bb12-fa0d8e4c4a6a", roleName: "Helpdesk Administrator" },
-          ],
-        },
-        events: {
-          create: {
-            event: "activated",
-            oldStatus: "pending_acceptance",
-            newStatus: "active",
-          },
-        },
-      },
-    });
-
-    const superRole = await prisma.role.findUnique({ where: { key: "platform_super_admin" } });
-    const admin = await prisma.portalUser.upsert({
-      where: { email: "admin@netrichtechnologies.com" },
+  const superRole = await prisma.role.findUnique({ where: { key: "platform_super_admin" } });
+  const admin = await prisma.portalUser.upsert({
+    where: { email: "admin@netrichtechnologies.com" },
+    update: {},
+    create: {
+      partnerId: partner.id,
+      email: "admin@netrichtechnologies.com",
+      name: "Netrich Super Admin",
+      title: "Super Administrator",
+      legacyRole: "partner_admin",
+      legacyId: "acc-partner-admin",
+    },
+  });
+  if (superRole) {
+    await prisma.userRole.upsert({
+      where: { userId_roleId: { userId: admin.id, roleId: superRole.id } },
       update: {},
-      create: {
-        partnerId: partner.id,
-        email: "admin@netrichtechnologies.com",
-        name: "Netrich Super Admin",
-        title: "Super Administrator",
-        legacyRole: "partner_admin",
-        legacyId: "acc-partner-admin",
-      },
+      create: { userId: admin.id, roleId: superRole.id },
     });
-    if (superRole) {
-      await prisma.userRole.upsert({
-        where: { userId_roleId: { userId: admin.id, roleId: superRole.id } },
-        update: {},
-        create: { userId: admin.id, roleId: superRole.id },
-      });
-    }
   }
 
   console.log("Seed complete. Partner:", partner.slug);

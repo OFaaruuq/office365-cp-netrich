@@ -6,7 +6,6 @@ import type {
   ThreadMessage,
   ThreadStatus,
 } from "./tenancy-types";
-import { getCustomer } from "./tenancy-data";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const STORE_FILE = path.join(DATA_DIR, "support-threads.json");
@@ -19,109 +18,32 @@ function ensureStore(): SupportThread[] {
   try {
     if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
     if (!existsSync(STORE_FILE)) {
-      const seed = seedThreads();
-      writeFileSync(STORE_FILE, JSON.stringify(seed, null, 2), "utf8");
-      return seed;
+      writeFileSync(STORE_FILE, "[]", "utf8");
+      return [];
     }
     const raw = readFileSync(STORE_FILE, "utf8");
-    return JSON.parse(raw) as SupportThread[];
+    const parsed = JSON.parse(raw) as SupportThread[];
+    if (!Array.isArray(parsed)) return [];
+    const cleaned = parsed.filter(
+      (t) =>
+        t.id !== "thread-amtel-1" &&
+        t.id !== "thread-orbit-bill" &&
+        t.customerId !== "cust-amtel" &&
+        t.customerId !== "cust-orbit" &&
+        t.customerId !== "cust-nile" &&
+        t.customerId !== "cust-sigma" &&
+        t.customerId !== "cust-demo"
+    );
+    if (cleaned.length !== parsed.length) persist(cleaned);
+    return cleaned;
   } catch {
-    return seedThreads();
+    return [];
   }
 }
 
 function persist(threads: SupportThread[]) {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(STORE_FILE, JSON.stringify(threads, null, 2), "utf8");
-}
-
-function seedThreads(): SupportThread[] {
-  const now = Date.now();
-  const amtel = getCustomer("cust-amtel");
-  const orbit = getCustomer("cust-orbit");
-
-  const t1: SupportThread = {
-    id: "thread-amtel-1",
-    customerId: "cust-amtel",
-    customerName: amtel?.name || "Amtelkom",
-    clientUserId: "acc-client-amtel",
-    clientUserName: "Amtelkom Admin",
-    clientUserEmail: "admin@amtelkom.onmicrosoft.com",
-    team: "technical",
-    status: "queued",
-    assignedAgentId: null,
-    assignedAgentName: null,
-    subject: "Need help with user sync",
-    createdAt: new Date(now - 3600000).toISOString(),
-    updatedAt: new Date(now - 3500000).toISOString(),
-    messages: [
-      {
-        id: uid(),
-        sender: "system",
-        senderName: "System",
-        text: "Chat started · Technical Support queue",
-        createdAt: new Date(now - 3600000).toISOString(),
-        readByClient: true,
-        readByAgent: false,
-      },
-      {
-        id: uid(),
-        sender: "client",
-        senderName: "Amtelkom Admin",
-        text: "Hello, User Sync is failing for 6 blocked accounts. Can Technical help?",
-        createdAt: new Date(now - 3500000).toISOString(),
-        readByClient: true,
-        readByAgent: false,
-      },
-    ],
-  };
-
-  const t2: SupportThread = {
-    id: "thread-orbit-bill",
-    customerId: "cust-orbit",
-    customerName: orbit?.name || "Orbit Digital",
-    clientUserId: "acc-client-orbit",
-    clientUserName: "Orbit Admin",
-    clientUserEmail: "admin@orbitdigital.onmicrosoft.com",
-    team: "billing",
-    status: "active",
-    assignedAgentId: "acc-bill-lina",
-    assignedAgentName: "Lina Farouk",
-    subject: "Invoice question",
-    createdAt: new Date(now - 7200000).toISOString(),
-    updatedAt: new Date(now - 600000).toISOString(),
-    messages: [
-      {
-        id: uid(),
-        sender: "system",
-        senderName: "System",
-        text: "Chat started · Billing Support queue",
-        createdAt: new Date(now - 7200000).toISOString(),
-        readByClient: true,
-        readByAgent: true,
-      },
-      {
-        id: uid(),
-        sender: "client",
-        senderName: "Orbit Admin",
-        text: "Hi, can you explain the September invoice total?",
-        createdAt: new Date(now - 7000000).toISOString(),
-        readByClient: true,
-        readByAgent: true,
-      },
-      {
-        id: uid(),
-        sender: "agent",
-        senderName: "Lina Farouk",
-        text: "Hi, my name is Lina from netrichtechnologies Billing. I can help you with that. Your September invoice includes 42 Business Premium seats billed monthly.",
-        createdAt: new Date(now - 6800000).toISOString(),
-        readByClient: false,
-        readByAgent: true,
-      },
-    ],
-  };
-
-  return [t1, t2];
 }
 
 export function listThreads(filter?: {

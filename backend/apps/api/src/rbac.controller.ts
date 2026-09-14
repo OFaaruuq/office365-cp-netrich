@@ -1,16 +1,18 @@
 import { Controller, Get } from "@nestjs/common";
 import { withTenantContext } from "../../../libs/prisma";
-import { CurrentTenant, RequirePartnerAdmin, type TenantContext } from "../../../libs/guards";
+import { CurrentTenant, RequirePartnerAdmin, RequirePermissions, type TenantContext } from "../../../libs/guards";
 import { PERMISSIONS, ROLE_PACKS, LEGACY_ROLE_MAP } from "../../../libs/rbac";
 
 @RequirePartnerAdmin()
 @Controller("rbac")
 export class RbacController {
+  @RequirePermissions("platform.admin")
   @Get("permissions")
   permissions() {
     return { permissions: PERMISSIONS };
   }
 
+  @RequirePermissions("platform.admin")
   @Get("roles")
   async roles(@CurrentTenant() tenant: TenantContext) {
     return withTenantContext(tenant, async (tx) => {

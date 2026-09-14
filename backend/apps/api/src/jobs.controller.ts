@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, NotFoundException } from "@nestjs/common";
 import { withTenantContext } from "../../../libs/prisma";
 import { CurrentTenant, RequirePartnerAdmin, RequirePermissions, type TenantContext } from "../../../libs/guards";
-import { enqueueJob } from "../../../libs/jobs";
+import { enqueueJob, processJobById } from "../../../libs/jobs";
 
 @RequirePartnerAdmin()
 @Controller("jobs")
@@ -34,5 +34,14 @@ export class JobsController {
       userId: tenant.userId,
     });
     return result;
+  }
+
+  @RequirePermissions("platform.admin")
+  @Post("retry")
+  async retry(@Body() body: { jobId?: string }) {
+    if (!body.jobId) throw new NotFoundException({ code: "JOB_REQUIRED" });
+    const job = await processJobById(body.jobId);
+    if (!job) throw new NotFoundException({ code: "NOT_FOUND" });
+    return { job, source: "nest" };
   }
 }

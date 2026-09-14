@@ -60,6 +60,20 @@ async function tryNest(
   return null;
 }
 
+async function dualWriteNest(
+  joined: string,
+  session: ServerSession,
+  customerId: string | undefined,
+  request: NextRequest,
+  payload: unknown
+) {
+  return tryNest(`/v1/${joined}`, session, customerId, request, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 function partnerListCustomerId(
   url: URL,
   session: ServerSession,
@@ -86,7 +100,12 @@ export async function GET(
   const { session } = access;
   const scopedCustomerId = access.customerId;
 
-  const nest = await tryNest(`/v1/${joined}${url.search}`, session, scopedCustomerId, request);
+  const nestSearch = new URLSearchParams(url.search);
+  if (scopedCustomerId && !nestSearch.get("customerId")) {
+    nestSearch.set("customerId", scopedCustomerId);
+  }
+  const nestQuery = nestSearch.toString() ? `?${nestSearch.toString()}` : "";
+  const nest = await tryNest(`/v1/${joined}${nestQuery}`, session, scopedCustomerId, request);
   if (
     nest &&
     (joined === "health" ||
@@ -101,7 +120,13 @@ export async function GET(
       joined.startsWith("approvals") ||
       joined.startsWith("onboarding") ||
       joined.startsWith("directory") ||
-      joined.startsWith("commerce"))
+      joined.startsWith("commerce") ||
+      joined === "subscriptions" ||
+      joined === "orders" ||
+      joined === "invoices" ||
+      joined === "service-health" ||
+      joined === "security" ||
+      joined === "graph-sync")
   ) {
     const data = await nest.json();
     return NextResponse.json({ ...data, source: "nest" });
@@ -438,7 +463,8 @@ export async function GET(
     }
     return NextResponse.json({
       services: platform.serviceHealth[scopedCustomerId] || [],
-      source: "local",
+      source: "local-unmeasured",
+      message: "Connect Microsoft Graph to load live service health for this tenant.",
     });
   }
 
@@ -450,8 +476,22 @@ export async function GET(
       );
     }
     return NextResponse.json({
-      security: platform.security[scopedCustomerId] || null,
-      source: "local",
+      security: platform.security[scopedCustomerId] || {
+        secureScore: 0,
+        mfaCoverage: 0,
+        privilegedUsers: 0,
+        riskyUsers: 0,
+        disabledUsers: 0,
+        staleAccounts: 0,
+        guestAccounts: 0,
+        legacyAuth: 0,
+        adminMfa: 0,
+        source: "local-unmeasured",
+        recommendations: [
+          { severity: "INFO", text: "Connect Microsoft Graph to populate Secure Score for this tenant." },
+        ],
+      },
+      source: platform.security[scopedCustomerId]?.source || "local-unmeasured",
     });
   }
 
@@ -532,7 +572,11 @@ export async function GET(
   }
 
   if (joined === "break-glass") {
-    return NextResponse.json({ emails: platform.breakGlassEmails, source: "local" });
+    return NextResponse.json({
+      emails: platform.breakGlassEmails,
+      sessions: (platform.breakGlassSessions || []).filter((s) => !s.endedAt),
+      source: "local",
+    });
   }
 
   if (joined === "admin-access") {
@@ -704,10 +748,15 @@ export async function POST(
       const data = await nestJob.json();
       return NextResponse.json({ ...data, source: "nest" });
     }
-    job.status = "succeeded";
+    job.status = "failed";
+    job.lastError = "Nest worker not reachable; local enqueue did not claim Microsoft success.";
     job.updatedAt = new Date().toISOString();
     savePlatform(platform);
-    return NextResponse.json({ job, source: "local", detail: "Queued locally (Nest worker not reachable)." });
+    return NextResponse.json({
+      job,
+      source: "local",
+      detail: "Queued locally (Nest worker not reachable). Not marked succeeded.",
+    });
   }
 
   if (joined === "approvals") {
@@ -732,6 +781,11 @@ export async function POST(
       customerId: item.customerId,
       detail: `Approval requested: ${item.operation}`,
       meta: { approvalId: item.id, risk_level: "high" },
+    });
+    await dualWriteNest("approvals", auth.session, item.customerId, request, {
+      operation: item.operation,
+      customerId: item.customerId,
+      payload: item.payload,
     });
     return NextResponse.json({ approval: item, source: "local" });
   }
@@ -786,6 +840,7 @@ export async function POST(
       meta: { quoteId: result.quote.id },
       riskLevel: "low",
     });
+    await dualWriteNest("quotes", auth.session, result.quote.customerId, request, result.quote);
     return NextResponse.json({ quote: result.quote, source: "local" });
   }
 
@@ -821,6 +876,13 @@ export async function POST(
       meta: { invoiceId: result.invoice.id, total: result.invoice.total },
       riskLevel: "medium",
     });
+    await dualWriteNest("invoices", auth.session, result.invoice.customerId, request, {
+      id: result.invoice.id,
+      customerId: result.invoice.customerId,
+      amount: result.invoice.total,
+      currency: result.invoice.currency,
+      status: result.invoice.status,
+    });
     return NextResponse.json({ invoice: result.invoice, source: "local" });
   }
 
@@ -834,6 +896,13 @@ export async function POST(
     job.lastError = undefined;
     job.updatedAt = new Date().toISOString();
     savePlatform(platform);
+    const nestRetry = await dualWriteNest("jobs/retry", auth.session, job.customerId, request, {
+      jobId: job.id,
+    });
+    if (nestRetry) {
+      const data = await nestRetry.json();
+      return NextResponse.json({ ...data, source: "nest" });
+    }
     return NextResponse.json({ job, source: "local" });
   }
 
@@ -862,7 +931,8 @@ export async function POST(
     };
     platform.contacts.push(contact);
     savePlatform(platform);
-    return NextResponse.json({ contact, source: "local" });
+    await dualWriteNest("contacts", auth.session, contact.customerId, request, contact);
+    return NextResponse.json({ contact: contact, source: "local" });
   }
 
   if (joined === "break-glass") {
@@ -882,7 +952,79 @@ export async function POST(
       detail: `Break-glass account allowed: ${email}`,
       meta: { risk_level: "critical" },
     });
-    return NextResponse.json({ emails: platform.breakGlassEmails, source: "local" });
+    return NextResponse.json({
+      emails: platform.breakGlassEmails,
+      source: "local",
+      message: "Break-glass emails must use a unique portal password for emergency access.",
+    });
+  }
+
+  if (joined === "break-glass/activate") {
+    const auth = await requirePartnerAdmin(request);
+    if ("error" in auth) return auth.error;
+    const reason = String(body.reason || "").trim();
+    const email = String(body.email || auth.session.email).trim().toLowerCase();
+    if (!reason) return NextResponse.json({ error: "reason required" }, { status: 400 });
+    if (!platform.breakGlassEmails.includes(email)) {
+      return NextResponse.json({ error: "email is not on the break-glass allow-list", code: "NOT_ALLOWLISTED" }, { status: 400 });
+    }
+    const minutes = Math.min(Math.max(Number(body.durationMinutes) || 30, 5), 240);
+    const session = {
+      id: `bg-${Date.now().toString(36)}`,
+      email,
+      reason,
+      actorEmail: auth.session.email,
+      startedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + minutes * 60_000).toISOString(),
+    };
+    platform.breakGlassSessions = platform.breakGlassSessions || [];
+    platform.breakGlassSessions.unshift(session);
+    savePlatform(platform);
+    writeAudit({
+      action: "tenant.configure",
+      actorAccountId: auth.session.accountId,
+      actorEmail: auth.session.email,
+      actorRole: auth.session.role,
+      detail: `Break-glass emergency window started for ${email} (${minutes}m): ${reason}`,
+      meta: { risk_level: "critical", sessionId: session.id },
+    });
+    return NextResponse.json({ session, source: "local" });
+  }
+
+  if (joined === "graph-sync" || joined === "directory/sync") {
+    const auth = await requirePartnerAdmin(request);
+    if ("error" in auth) return auth.error;
+    const customerId = body.customerId ? String(body.customerId) : undefined;
+    const nestSync =
+      (await tryNest("/v1/directory/sync", auth.session, customerId, request, {
+        method: "POST",
+        body: JSON.stringify({ customerId }),
+      })) ||
+      (await tryNest("/v1/graph-sync", auth.session, customerId, request, {
+        method: "POST",
+        body: JSON.stringify({ customerId, name: "users.delta_sync" }),
+      }));
+    if (nestSync) {
+      const data = await nestSync.json();
+      return NextResponse.json({ ...data, source: "nest" });
+    }
+    const job = {
+      id: `job-${Date.now().toString(36)}`,
+      name: "users.delta_sync",
+      queue: "microsoft-sync",
+      customerId,
+      status: "failed" as const,
+      attempts: 0,
+      lastError: "GRAPH_NOT_CONFIGURED — Nest/Graph not reachable; sync was not stamped as success.",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    platform.jobs.unshift(job);
+    savePlatform(platform);
+    return NextResponse.json(
+      { job, source: "local", code: "GRAPH_NOT_CONFIGURED", error: job.lastError },
+      { status: 409 }
+    );
   }
 
   if (joined === "admin-access/end") {

@@ -28,7 +28,7 @@
 9. [Configuration & environment](#9-configuration--environment)
 10. [UI / UX system](#10-ui--ux-system)
 11. [Security](#11-security)
-12. [Demo vs production](#12-demo-vs-production)
+12. [Production identity](#12-production-identity)
 13. [Roadmap](#13-roadmap)
 14. [File map](#14-file-map)
 
@@ -51,7 +51,7 @@ Multi-tenant CSP-style portal where:
 | Wordmark | **netrichtechnologies** |
 | Subtitle | **Microsoft 365 Control Panel** |
 | Domain | `office365.cp.netrichtechnologies.com` |
-| Demo Super Admin | `admin@netrichtechnologies.com` |
+| Bootstrap Super Admin | `admin@netrichtechnologies.com` |
 
 ### Related docs
 
@@ -69,7 +69,7 @@ Multi-tenant CSP-style portal where:
 
 ```
 Browser
-  ├─ Entra SSO (production)  OR  email+password → TOTP (demo)
+  ├─ Entra SSO (production)  OR  break-glass password → TOTP
   └─ Portal shell (Header · Partner Control Center / Workspace sidebar · Chat)
            │
            ▼
@@ -99,7 +99,7 @@ Browser
 
 - Node.js 20+
 - npm
-- TOTP app for demo MFA
+- Microsoft Authenticator / Entra MFA (password + TOTP only for break-glass)
 - Docker Desktop for Nest/Postgres (optional for UI-only)
 
 ### UI
@@ -128,11 +128,11 @@ npm run dev:api
 | Start | `npm start` |
 | Lint | `npm run lint` |
 
-### Demo sign-in
+### Production sign-in
 
-1. Email + password (`demo` or custom from Users & MFA).
-2. MFA enroll/verify (Google Authenticator).
-3. Or **Sign in with Microsoft** when Entra client ID is configured.
+1. **Sign in with Microsoft** (Entra ID + Conditional Access MFA).
+2. Super Admin must provision the portal account first.
+3. **Emergency access** (break-glass allow-list) uses a unique password + TOTP — not a shared secret.
 
 ---
 
@@ -157,7 +157,7 @@ Cannot disable/delete own account or the last active Super Admin.
 
 ### 5.1 Authentication (`/`)
 
-Split-screen login · Entra button · Demo credentials → MFA · Explore Plans → catalog.
+Split-screen login · Sign in with Microsoft · Explore Plans (Entra) · Emergency access for break-glass.
 
 ### 5.2 Partner Control Center
 
@@ -261,9 +261,9 @@ RLS helpers: `backend/prisma/rls.sql` + `rls-policies.sql`.
 | Integration | Status |
 |-------------|--------|
 | **MSAL / Entra** | UI SSO ready; Nest validates access tokens when `AZURE_AD_API_AUDIENCE` set |
-| **TOTP MFA** | Demo path only — not primary MFA for Microsoft admins in production |
-| **Microsoft Graph** | Helpers in `src/lib/graph.ts`; live delta sync = Phase 2 |
-| **Partner Center / SAM** | Config + health stubs; writes disabled until Phase 3 |
+| **TOTP MFA** | Break-glass emergency path only — not primary MFA for Microsoft admins |
+| **Microsoft Graph** | Token + directory/users/groups/service-health/secureScore when `GRAPH_*` is set; otherwise `GRAPH_NOT_CONFIGURED` (never faked) |
+| **Partner Center / SAM** | Token acquire + read-only customers when `PARTNER_CENTER_*` is set; writes stay off unless `PARTNER_CENTER_WRITES_ENABLED=true` |
 | **Key Vault** | URI placeholder for certificates / token encryption |
 
 ---
@@ -277,7 +277,6 @@ RLS helpers: `backend/prisma/rls.sql` + `rls-policies.sql`.
 | `NEXT_PUBLIC_AZURE_AD_CLIENT_ID` | Entra SPA |
 | `NEXT_PUBLIC_AZURE_AD_AUTHORITY` | Authority |
 | `PORTAL_SESSION_SECRET` | Session HMAC (production required) |
-| `ALLOW_DEMO_LOGIN` / `DEMO_LOGIN_PASSWORD` | Demo credential login |
 | Backend: `DATABASE_URL`, `REDIS_URL`, `AZURE_AD_API_AUDIENCE`, `AZURE_KEY_VAULT_URI` | See `backend/.env.example` |
 
 ---
@@ -294,8 +293,8 @@ Tokens in `src/app/globals.css` (`--nt-*`). Font: Plus Jakarta Sans. Components:
 |---------|----------|
 | Session | Signed httpOnly `nt_portal_session` |
 | Middleware | Portal + API auth; admin = partner |
-| Passwords | Per-account scrypt or demo fallback |
-| MFA | TOTP (demo) / Entra MFA claims (production) |
+| Passwords | Unique per-account scrypt. Emergency access is break-glass only. |
+| MFA | Entra Conditional Access (primary) / TOTP for break-glass |
 | Portal lock | Re-checked on API after suspend/terminate |
 | View-as | Reason + duration + banner + audit; read-only default |
 | Terminate | Soft retention by default |
@@ -304,23 +303,23 @@ Tokens in `src/app/globals.css` (`--nt-*`). Font: Plus Jakarta Sans. Components:
 
 ---
 
-## 12. Demo vs production
+## 12. Production identity
 
-| Area | Today | Target |
-|------|-------|--------|
-| Identity | Demo + TOTP / optional Entra UI | Entra + Conditional Access |
-| Data | `.data` + optional Postgres | PostgreSQL SoR + RLS |
-| Commerce | Local catalog subscribe | Partner Center + NCE rules |
-| Graph | Optional / demo sync | Delta sync per tenant |
-| Billing / Azure | Shells | Full modules (Phase 3) |
+| Area | This codebase |
+|------|----------------|
+| Identity | Microsoft Entra ID + Conditional Access; break-glass password + TOTP for allow-listed emails |
+| Data | `.data` + optional Postgres |
+| Commerce | Local catalog requests; Super Admin records payment with a reference |
+| Graph | Optional; `GRAPH_NOT_CONFIGURED` when unset (never faked) |
+| Billing / Azure | Partner Center writes remain off until explicitly enabled |
 
 ---
 
 ## 13. Roadmap
 
-1. **Foundation (Phase 1 — done in-repo)** — NestJS, Prisma/RLS, Entra path, SAM stubs, GDAP/onboarding, Partner Control Center  
-2. **Microsoft Connected (Phase 2)** — Live SAM, Graph + Partner Center **read-only**  
-3. **Full CSP (Phase 3)** — NCE commerce, quotes/orders, billing/recon, Azure, public API  
+1. **Foundation (Phase 1 — done in-repo)** — NestJS, Prisma/RLS, Entra path, Graph/PC token clients, GDAP/onboarding, Partner Control Center  
+2. **Microsoft Connected (Phase 2)** — Live Graph + Partner Center **read-only** when credentials are set  
+3. **Full CSP (Phase 3)** — NCE Partner Center writes, Azure consumption, public API  
 
 Details: [CSP_PRODUCTION_ARCHITECTURE.md](./CSP_PRODUCTION_ARCHITECTURE.md).
 
@@ -330,7 +329,7 @@ Details: [CSP_PRODUCTION_ARCHITECTURE.md](./CSP_PRODUCTION_ARCHITECTURE.md).
 
 ```
 src/app/
-  page.tsx                    Login (Entra + demo MFA)
+  page.tsx                    Login (Entra; emergency access for break-glass)
   middleware.ts
   (portal)/admin/             Partner Control Center
   (portal)/workspace/         Customer shells

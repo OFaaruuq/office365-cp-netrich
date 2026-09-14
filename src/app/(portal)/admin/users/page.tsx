@@ -43,7 +43,7 @@ type Modal =
 
 export default function AdminUsersPage() {
   const router = useRouter();
-  const { isPartner, ready, user, demoLogin } = useSession();
+  const { isPartner, ready, user } = useSession();
   const headers = useSuperAdminHeaders();
   const [tab, setTab] = useState<Tab>("clients");
   const [accounts, setAccounts] = useState<AdminRow[]>([]);
@@ -142,7 +142,7 @@ export default function AdminUsersPage() {
 
   async function createAccount(e: FormEvent) {
     e.preventDefault();
-    if (!demoLogin && !form.password) {
+    if (!form.password) {
       setError("Password required (at least 12 characters, including letters and numbers).");
       return;
     }
@@ -347,9 +347,9 @@ export default function AdminUsersPage() {
                   {tab === "staff" ? "Add Super Admin / Support" : "Add Client Admin"}
                 </div>
                 <div className="text-xs text-nt-text-muted">
-                  {demoLogin
-                    ? "Optional password — leave blank to use the shared demo password"
-                    : "Password required — at least 12 characters, including letters and numbers"}
+                  {tab === "clients"
+                    ? "Unique password required — Microsoft Entra ID is the production sign-in path"
+                    : "Unique password required — at least 12 characters, including letters and numbers"}
                 </div>
               </div>
               <button
@@ -422,11 +422,11 @@ export default function AdminUsersPage() {
                 />
               </label>
               <label className="block text-xs font-medium text-nt-text-muted">
-                Password {demoLogin ? "(optional)" : "*"}
+                Password *
                 <input
                   className="nt-input mt-1"
                   type="password"
-                  required={!demoLogin}
+                  required
                   minLength={12}
                   autoComplete="new-password"
                   value={form.password}
@@ -434,20 +434,18 @@ export default function AdminUsersPage() {
                   placeholder="Min 12 characters, letters and numbers"
                 />
               </label>
-              {(!demoLogin || form.password) ? (
-                <label className="block text-xs font-medium text-nt-text-muted">
-                  Confirm password *
-                  <input
-                    className="nt-input mt-1"
-                    type="password"
-                    required
-                    minLength={12}
-                    autoComplete="new-password"
-                    value={form.confirmPassword}
-                    onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                  />
-                </label>
-              ) : null}
+              <label className="block text-xs font-medium text-nt-text-muted">
+                Confirm password *
+                <input
+                  className="nt-input mt-1"
+                  type="password"
+                  required
+                  minLength={12}
+                  autoComplete="new-password"
+                  value={form.confirmPassword}
+                  onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                />
+              </label>
             </div>
             <div className="flex justify-end gap-2 border-t border-nt-border px-5 py-3">
               <button type="button" onClick={() => setModal(null)} className="nt-btn-outline">
@@ -564,27 +562,6 @@ export default function AdminUsersPage() {
                   onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
                 />
               </label>
-              {modal.account.hasCustomPassword && demoLogin && (
-                <button
-                  type="button"
-                  disabled={busyId === modal.account.id}
-                  onClick={() => {
-                    if (
-                      confirm(
-                        `Clear custom password for ${modal.account.email}? They will use the default demo password again.`
-                      )
-                    ) {
-                      void runAction(modal.account.id, "clear_password").then(() => {
-                        setModal(null);
-                        resetForm();
-                      });
-                    }
-                  }}
-                  className="text-xs font-semibold text-nt-danger hover:underline"
-                >
-                  Clear custom password (revert to demo)
-                </button>
-              )}
             </div>
             <div className="flex justify-end gap-2 border-t border-nt-border px-5 py-3">
               <button type="button" onClick={() => setModal(null)} className="nt-btn-outline">

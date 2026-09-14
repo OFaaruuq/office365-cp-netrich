@@ -15,7 +15,8 @@ import {
   rejectPurchaseOrder,
 } from "@/lib/purchase-store";
 import { loadPlatform, savePlatform } from "@/lib/platform-store";
-import { activeInspect } from "@/lib/auth/server-session";
+import { activeInspect, SESSION_COOKIE, LEGACY_SESSION_COOKIE } from "@/lib/auth/server-session";
+import { cspApiBase, cspInternalHeaders } from "@/lib/csp-api";
 
 /** List purchase orders — client sees own; partner sees all */
 export async function GET(request: NextRequest) {
@@ -112,6 +113,33 @@ export async function POST(request: NextRequest) {
     riskLevel: "medium",
   });
 
+  try {
+    const token =
+      request.cookies.get(SESSION_COOKIE)?.value || request.cookies.get(LEGACY_SESSION_COOKIE)?.value;
+    await fetch(`${cspApiBase()}/v1/orders`, {
+      method: "POST",
+      headers: cspInternalHeaders(client.session, client.customerId, token),
+      body: JSON.stringify({
+        id: result.order.id,
+        customerId: result.order.customerId,
+        status: result.order.status,
+        totalAmount: result.order.total,
+        currency: result.order.currency,
+        items: [
+          {
+            skuId: result.order.productId,
+            name: result.order.productName,
+            quantity: result.order.quantity,
+            unitPrice: result.order.unitPrice,
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    /* local SoR remains */
+  }
+
   return NextResponse.json({
     ok: true,
     order: result.order,
@@ -161,7 +189,7 @@ export async function PATCH(request: NextRequest) {
       title: action === "approve" ? "Purchase approved — payment required" : "Purchase rejected",
       message:
         action === "approve"
-          ? `Pay $${result.order.total.toFixed(2)} to receive licenses for ${result.order.productName}.`
+          ? `Payment of $${result.order.total.toFixed(2)} for ${result.order.productName} must be recorded by netrichtechnologies before licenses are issued.`
           : result.order.rejectReason || "Your purchase request was rejected.",
       actionUrl: "/workspace/orders",
       createdAt: new Date().toISOString(),
@@ -185,49 +213,48 @@ export async function PATCH(request: NextRequest) {
       order: result.order,
       message:
         action === "approve"
-          ? "Approved. Client must complete full payment to receive licenses."
+          ? "Approved. Super Admin records payment with a reference before licenses are issued."
           : "Purchase request rejected.",
     });
   }
 
   if (action === "pay") {
-    const client = await requireClientTenant(request);
-    if ("error" in client) return client.error;
+    const partner = await requirePartnerAdmin(request);
+    if ("error" in partner) return partner.error;
 
-    const orderRow = listPurchaseOrders({ customerId: client.customerId }).find((o) => o.id === id);
-    if (!orderRow) {
-      return NextResponse.json({ error: "Order not found", code: "NOT_FOUND" }, { status: 404 });
+    const paymentRef = String(body.paymentRef || "").trim();
+    if (!paymentRef) {
+      return NextResponse.json(
+        { error: "paymentRef is required (bank transfer, invoice, or receipt ID).", code: "PAYMENT_REF_REQUIRED" },
+        { status: 400 }
+      );
     }
 
-    const result = payPurchaseOrder(
-      id,
-      client.session.email,
-      body.paymentRef ? String(body.paymentRef) : undefined
-    );
+    const result = payPurchaseOrder(id, partner.session.email, paymentRef);
     if ("error" in result) {
       return NextResponse.json(result, { status: 400 });
     }
 
     writeAudit({
       action: "commerce.subscribe",
-      actorAccountId: client.session.accountId,
-      actorEmail: client.session.email,
-      actorRole: client.session.role,
-      customerId: client.customerId,
-      detail: `Paid & fulfilled ${result.order.quantity} × ${result.order.productName}`,
+      actorAccountId: partner.session.accountId,
+      actorEmail: partner.session.email,
+      actorRole: partner.session.role,
+      customerId: result.order.customerId,
+      detail: `Recorded payment & fulfilled ${result.order.quantity} × ${result.order.productName}`,
       meta: {
         purchaseOrderId: result.order.id,
         paymentRef: result.order.paymentRef || "",
         subscriptionId: result.order.subscriptionId || "",
         total: result.order.total,
       },
-      riskLevel: "medium",
+      riskLevel: "high",
     });
 
     return NextResponse.json({
       ok: true,
       order: result.order,
-      message: `Payment received. ${result.order.quantity} license(s) for ${result.order.productName} are now active.`,
+      message: `Payment recorded. ${result.order.quantity} license(s) for ${result.order.productName} are now active.`,
     });
   }
 

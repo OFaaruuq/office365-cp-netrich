@@ -5,7 +5,7 @@ import { getTenantWorkspace } from "@/lib/tenant-workspace";
 /**
  * Subscriptions are always served from the isolated tenant workspace.
  * Live Graph SKU pulls are partner-only and never mixed into another tenant's store
- * without an explicit future GDAP binding (disabled in demo for isolation safety).
+ * without an explicit GDAP binding.
  */
 export async function GET(request: NextRequest) {
   const scope = await resolveTenantScope(request);
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Direct Graph SKU import is disabled in the control panel demo to prevent cross-tenant data mixing. Use the isolated tenant workspace.",
+          "Direct Graph SKU import is disabled. Use the isolated tenant workspace after Graph is connected.",
         code: "GRAPH_IMPORT_DISABLED",
         customerId: scope.customerId,
       },

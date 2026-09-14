@@ -7,6 +7,7 @@ import path from "path";
 import { createHash, randomBytes } from "crypto";
 import { findCustomer, loadCustomers } from "@/lib/customer-store";
 import { listTenantSubscriptions } from "@/lib/subscription-store";
+import { DEMO_CUSTOMER_IDS } from "@/lib/tenancy-data";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const FILE = path.join(DATA_DIR, "platform.json");
@@ -170,6 +171,7 @@ export type PlatformFile = {
       guestAccounts: number;
       legacyAuth: number;
       adminMfa: number;
+      source?: string;
       recommendations: Array<{ severity: string; text: string }>;
     }
   >;
@@ -206,6 +208,15 @@ export type PlatformFile = {
     status: string;
   }>;
   breakGlassEmails: string[];
+  breakGlassSessions: Array<{
+    id: string;
+    email: string;
+    reason: string;
+    actorEmail: string;
+    startedAt: string;
+    expiresAt: string;
+    endedAt?: string;
+  }>;
 };
 
 function atomicWrite(filePath: string, contents: string) {
@@ -234,6 +245,7 @@ function empty(): PlatformFile {
     idempotency: [],
     graphSync: [],
     breakGlassEmails: ["breakglass@netrichtechnologies.com"],
+    breakGlassSessions: [],
   };
 }
 
@@ -274,112 +286,41 @@ function ensureSeed(data: PlatformFile): PlatformFile {
     ];
   }
 
-  if (!base.jobs.length) {
-    const now = new Date().toISOString();
-    base.jobs = [
-      {
-        id: "job-catalog-1",
-        name: "catalog.sync",
-        queue: "microsoft-sync",
-        status: "succeeded",
-        attempts: 1,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: "job-gdap-1",
-        name: "gdap.sync",
-        queue: "microsoft-sync",
-        status: "succeeded",
-        attempts: 1,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: "job-fail-1",
-        name: "subscriptions.sync",
-        queue: "microsoft-sync",
-        customerId: customers[0]?.id,
-        status: "dead_letter",
-        attempts: 5,
-        lastError: "Simulated throttle — Retry-After exceeded (Foundation stub)",
-        createdAt: now,
-        updatedAt: now,
-      },
-    ];
-  }
+  const fakeJobIds = new Set(["job-catalog-1", "job-gdap-1", "job-fail-1"]);
+  base.jobs = (base.jobs || []).filter(
+    (j) => !fakeJobIds.has(j.id) && !String(j.lastError || "").includes("Simulated throttle")
+  );
+
+  const dropDemo = (customerId?: string) => !customerId || !DEMO_CUSTOMER_IDS.has(customerId);
+  base.quotes = (base.quotes || []).filter((q) => dropDemo(q.customerId) && !String(q.id).startsWith("qt-demo"));
+  base.invoices = (base.invoices || []).filter(
+    (i) => dropDemo(i.customerId) && !String(i.id).startsWith("inv-demo")
+  );
+  base.orders = (base.orders || []).filter((o) => dropDemo(o.customerId) && !String(o.id).startsWith("ord-demo"));
+  base.contacts = (base.contacts || []).filter((c) => dropDemo(c.customerId));
+  base.domains = (base.domains || []).filter((d) => dropDemo(d.customerId));
+  base.notifications = (base.notifications || []).filter(
+    (n) => dropDemo(n.customerId) && !String(n.id).match(/^ntf-cust-.*-gdap$/)
+  );
 
   for (const c of customers) {
-    if (!base.contacts.some((x) => x.customerId === c.id)) {
-      base.contacts.push(
-        {
-          id: `ct-${c.id}-primary`,
-          customerId: c.id,
-          type: "PRIMARY",
-          name: `${c.name} Admin`,
-          email: c.adminEmail,
-        },
-        {
-          id: `ct-${c.id}-billing`,
-          customerId: c.id,
-          type: "BILLING",
-          name: "Billing Contact",
-          email: c.config?.billingContactEmail || c.adminEmail,
-        },
-        {
-          id: `ct-${c.id}-tech`,
-          customerId: c.id,
-          type: "TECHNICAL",
-          name: "Technical Contact",
-          email: c.config?.technicalContactEmail || c.adminEmail,
-        }
-      );
-    }
-    if (!base.domains.some((d) => d.customerId === c.id)) {
-      base.domains.push(
-        {
-          id: `dom-${c.id}-1`,
-          customerId: c.id,
-          name: c.domain,
-          verified: true,
-          primary: true,
-          dns: { mx: true, spf: true, dkim: true, dmarc: c.status === "active", autodiscover: true },
-        },
-        {
-          id: `dom-${c.id}-onms`,
-          customerId: c.id,
-          name: `${c.domain.split(".")[0] || "contoso"}.onmicrosoft.com`,
-          verified: true,
-          primary: false,
-          dns: { mx: true, spf: true, dkim: false, dmarc: false, autodiscover: true },
-        }
-      );
-    }
     if (!base.serviceHealth[c.id]) {
-      base.serviceHealth[c.id] = [
-        { service: "Exchange Online", status: "Healthy" },
-        { service: "Microsoft Teams", status: c.id.includes("orbit") ? "Advisory" : "Healthy", detail: c.id.includes("orbit") ? "Intermittent meeting join latency" : undefined },
-        { service: "SharePoint Online", status: "Healthy" },
-        { service: "Entra ID", status: "Healthy" },
-        { service: "Microsoft Defender", status: "Healthy" },
-      ];
+      base.serviceHealth[c.id] = [];
     }
-    if (!base.security[c.id]) {
+    if (!base.security[c.id] || !base.security[c.id].source || base.security[c.id].source === "local-formula") {
       base.security[c.id] = {
-        secureScore: 62 + (c.usersCount % 20),
-        mfaCoverage: 88 + (c.usersCount % 10),
-        privilegedUsers: 4 + (c.usersCount % 5),
-        riskyUsers: c.status === "active" ? 1 : 2,
-        disabledUsers: 3,
-        staleAccounts: 8 + (c.usersCount % 12),
-        guestAccounts: 10 + (c.usersCount % 15),
+        secureScore: 0,
+        mfaCoverage: 0,
+        privilegedUsers: 0,
+        riskyUsers: 0,
+        disabledUsers: 0,
+        staleAccounts: 0,
+        guestAccounts: 0,
         legacyAuth: 0,
-        adminMfa: 100,
+        adminMfa: 0,
+        source: "local-unmeasured",
         recommendations: [
-          { severity: "HIGH", text: "2 global admins lack PIM" },
-          { severity: "HIGH", text: "Review risky sign-ins" },
-          { severity: "MEDIUM", text: `${8 + (c.usersCount % 12)} inactive accounts` },
-          { severity: "LOW", text: "Unused licenses detected" },
+          { severity: "INFO", text: "Connect Microsoft Graph to populate Secure Score for this tenant." },
         ],
       };
     }
@@ -388,109 +329,25 @@ function ensureSeed(data: PlatformFile): PlatformFile {
         {
           customerId: c.id,
           resource: "users",
-          deltaLink: `https://graph.microsoft.com/v1.0/users/delta?$deltatoken=stub-${c.id}`,
-          lastFullSync: new Date(Date.now() - 7 * 864e5).toISOString(),
-          lastDeltaSync: new Date(Date.now() - 2 * 3600e3).toISOString(),
-          status: "idle",
+          status: "not_synced",
         },
         {
           customerId: c.id,
           resource: "subscribedSkus",
-          lastFullSync: new Date(Date.now() - 864e5).toISOString(),
-          lastDeltaSync: new Date(Date.now() - 3600e3).toISOString(),
-          status: "idle",
+          status: "not_synced",
         }
       );
     }
-    if (!base.notifications.some((n) => n.customerId === c.id && n.type === "gdap.expiring")) {
-      base.notifications.push({
-        id: `ntf-${c.id}-gdap`,
-        customerId: c.id,
-        type: "gdap.expiring",
-        severity: "warning",
-        title: "GDAP relationship expiring",
-        message: `GDAP for ${c.name} expires within 100 days. Review renew.`,
-        actionUrl: `/admin/gdap`,
-        createdAt: new Date().toISOString(),
-      });
+  }
+
+  if (!Array.isArray(base.breakGlassSessions)) base.breakGlassSessions = [];
+  for (const g of base.graphSync) {
+    if (g.deltaLink?.includes("deltatoken=stub-")) {
+      delete g.deltaLink;
+      g.status = "not_synced";
+      g.lastFullSync = undefined;
+      g.lastDeltaSync = undefined;
     }
-  }
-
-  if (!base.quotes.length && customers[0]) {
-    base.quotes.push({
-      id: "qt-demo-1",
-      customerId: customers[0].id,
-      status: "draft",
-      currency: "USD",
-      items: [
-        {
-          productId: "m365-business-premium",
-          name: "Microsoft 365 Business Premium",
-          qty: 25,
-          unitPrice: 19.25,
-        },
-      ],
-      notes: "Demo quote",
-      createdBy: "admin@netrichtechnologies.com",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  if (!Array.isArray(base.invoices)) base.invoices = [];
-  if (!base.invoices.length && customers[0]) {
-    const period = new Date().toISOString().slice(0, 7);
-    base.invoices.push({
-      id: "inv-demo-1",
-      customerId: customers[0].id,
-      customerName: customers[0].name,
-      quoteId: "qt-demo-1",
-      period,
-      currency: "USD",
-      items: [
-        {
-          productId: "m365-business-premium",
-          name: "Microsoft 365 Business Premium",
-          qty: 25,
-          unitPrice: 19.25,
-        },
-      ],
-      microsoftCost: 400,
-      netrichMarkup: 81.25,
-      taxRate: 5,
-      tax: 24.06,
-      subtotal: 481.25,
-      total: 505.31,
-      status: "open",
-      notes: "Demo invoice",
-      dueAt: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
-      createdBy: "admin@netrichtechnologies.com",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  if (!base.orders.length && customers[0]) {
-    const now = new Date().toISOString();
-    base.orders.push(
-      {
-        id: "ord-demo-1",
-        customerId: customers[0].id,
-        quoteId: "qt-demo-1",
-        status: "FULFILLED",
-        items: [{ name: "Microsoft 365 Business Premium", qty: 25, unitPrice: 19.25 }],
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: "ord-demo-2",
-        customerId: customers[0].id,
-        status: "PROVISIONING",
-        items: [{ name: "Microsoft 365 Business Standard", qty: 10, unitPrice: 11.0 }],
-        createdAt: now,
-        updatedAt: now,
-      }
-    );
   }
 
   return base;
@@ -503,7 +360,17 @@ export function loadPlatform(): PlatformFile {
       atomicWrite(FILE, JSON.stringify(seeded, null, 2));
       return seeded;
     }
-    return ensureSeed(JSON.parse(readFileSync(FILE, "utf8")) as PlatformFile);
+    const parsed = JSON.parse(readFileSync(FILE, "utf8")) as PlatformFile;
+    const seeded = ensureSeed(parsed);
+    const hadFixtures =
+      (parsed.quotes || []).some((q) => String(q.id).startsWith("qt-demo")) ||
+      (parsed.invoices || []).some((i) => String(i.id).startsWith("inv-demo")) ||
+      (parsed.orders || []).some((o) => String(o.id).startsWith("ord-demo")) ||
+      (parsed.jobs || []).some((j) =>
+        ["job-catalog-1", "job-gdap-1", "job-fail-1"].includes(j.id)
+      );
+    if (hadFixtures) atomicWrite(FILE, JSON.stringify(seeded, null, 2));
+    return seeded;
   } catch {
     return ensureSeed(empty());
   }

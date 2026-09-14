@@ -44,3 +44,18 @@ export async function partnerCenterGet<T>(accessToken: string, path: string): Pr
   }
   return res.json() as Promise<T>;
 }
+
+export async function listPartnerCenterCustomers(accessToken: string) {
+  const data = await partnerCenterGet<{
+    items?: Array<{
+      id?: string;
+      companyProfile?: { companyName?: string; domain?: string };
+    }>;
+  }>(accessToken, "/v1/customers");
+  return (data.items || []).map((c) => ({
+    id: c.id,
+    name: c.companyProfile?.companyName || c.id,
+    domain: c.companyProfile?.domain,
+    source: "partner_center" as const,
+  }));
+}

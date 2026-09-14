@@ -1,11 +1,12 @@
 import { Body, Controller, Post, BadRequestException } from "@nestjs/common";
 import { withTenantContext } from "../../../libs/prisma";
-import { CurrentTenant, RequirePartnerAdmin, type TenantContext } from "../../../libs/guards";
+import { CurrentTenant, RequirePartnerAdmin, RequirePermissions, type TenantContext } from "../../../libs/guards";
 
 @RequirePartnerAdmin()
 @Controller("admin-access")
 export class AdminAccessController {
   /** Controlled view-as-customer (read-only by default) */
+  @RequirePermissions("admin.impersonate")
   @Post()
   async start(
     @CurrentTenant() tenant: TenantContext,
@@ -69,6 +70,7 @@ export class AdminAccessController {
     });
   }
 
+  @RequirePermissions("admin.impersonate")
   @Post("end")
   async end(@CurrentTenant() tenant: TenantContext) {
     if (!tenant.userId) {

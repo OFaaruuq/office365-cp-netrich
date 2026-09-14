@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 import path from "path";
-import { PORTAL_ACCOUNTS } from "@/lib/tenancy-data";
+import { DEMO_CUSTOMER_IDS, isDemoAccount, PORTAL_ACCOUNTS } from "@/lib/tenancy-data";
 import type { PortalAccount } from "@/lib/tenancy-types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
@@ -17,7 +17,10 @@ function loadDynamicAccounts(): PortalAccount[] {
   try {
     if (!existsSync(FILE)) return [];
     const parsed = JSON.parse(readFileSync(FILE, "utf8")) as PortalAccount[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    const cleaned = parsed.filter((a) => !isDemoAccount(a) && !DEMO_CUSTOMER_IDS.has(a.customerId || ""));
+    if (cleaned.length !== parsed.length) saveDynamicAccounts(cleaned);
+    return cleaned;
   } catch {
     return [];
   }
@@ -28,14 +31,19 @@ function saveDynamicAccounts(accounts: PortalAccount[]) {
 }
 
 /**
- * Seed personas + Super-Admin-created accounts.
- * Dynamic records override seed by id (so Super Admin can disable/edit seed client admins).
+ * Bootstrap Super Admin + Super-Admin-created accounts.
+ * Fixture client/support personas are never merged.
  */
 export function listPortalAccounts(): PortalAccount[] {
   const dynamic = loadDynamicAccounts();
   const byId = new Map<string, PortalAccount>();
-  for (const a of PORTAL_ACCOUNTS) byId.set(a.id, a);
-  for (const a of dynamic) byId.set(a.id, a);
+  for (const a of PORTAL_ACCOUNTS) {
+    if (!isDemoAccount(a)) byId.set(a.id, a);
+  }
+  for (const a of dynamic) {
+    if (isDemoAccount(a)) continue;
+    byId.set(a.id, a);
+  }
   return [...byId.values()]
     .filter((a) => !a.deleted)
     .map((a) =>

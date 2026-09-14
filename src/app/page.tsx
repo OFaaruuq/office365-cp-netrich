@@ -27,7 +27,7 @@ const SLIDES = [
 ];
 
 export default function SignInPage() {
-  const { user, ready, signInWithCredentials, signInWithEntra, completeMfa, demoLogin, entraConfigured } =
+  const { user, ready, signInWithCredentials, signInWithEntra, completeMfa, entraConfigured } =
     useSession();
   const [slide, setSlide] = useState(0);
   const [showCreds, setShowCreds] = useState(false);
@@ -52,18 +52,40 @@ export default function SignInPage() {
   }, [ready, user]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("error") === "entra") {
+      setError("Microsoft sign-in could not be completed. Confirm Entra is configured and the account is provisioned.");
+    }
+  }, []);
+
+  useEffect(() => {
     const id = window.setInterval(() => {
       setSlide((s) => (s + 1) % SLIDES.length);
     }, 7000);
     return () => window.clearInterval(id);
   }, []);
 
-  function openLogin(nextPath?: string) {
+  function openEmergencyLogin() {
     setShowCreds(true);
-    setAfterLoginPath(nextPath || null);
+    setAfterLoginPath(null);
     setMfa(null);
     setMfaCode("");
     setError(null);
+  }
+
+  async function startEntra(nextPath?: string) {
+    setError(null);
+    if (nextPath) {
+      try {
+        sessionStorage.setItem("nt-after-login", nextPath);
+      } catch {
+        /* ignore */
+      }
+    }
+    const result = await signInWithEntra();
+    if (result.mode === "unavailable") {
+      setError(result.message || "Microsoft Entra ID is not configured.");
+    }
   }
 
   function finishLogin(session: SessionUser) {
@@ -206,7 +228,7 @@ export default function SignInPage() {
 
           <button
             type="button"
-            onClick={() => openLogin("/catalog/microsoft-365")}
+            onClick={() => void startEntra("/catalog/microsoft-365")}
             className="relative z-10 mt-6 inline-flex items-center gap-2.5 self-start pb-2 text-sm font-medium text-white/90 transition hover:text-white lg:mt-auto"
           >
             <Menu size={18} strokeWidth={2} />
@@ -227,24 +249,15 @@ export default function SignInPage() {
               <div className="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                 <button
                   type="button"
-                  onClick={() => {
-                    void (async () => {
-                      setError(null);
-                      const result = await signInWithEntra();
-                      if (result.mode === "unavailable") {
-                        if (demoLogin) openLogin();
-                        else setError(result.message || "Entra SSO not configured");
-                      }
-                    })();
-                  }}
+                  onClick={() => void startEntra()}
                   className="inline-flex h-11 items-center justify-center rounded-md bg-[#0078d4] px-6 text-[15px] font-semibold text-white shadow-sm transition hover:bg-[#106ebe]"
                 >
                   Sign in with Microsoft
                 </button>
                 <button
                   type="button"
-                  onClick={() => openLogin("/catalog/microsoft-365")}
-                  disabled={!demoLogin && !entraConfigured}
+                  onClick={() => void startEntra("/catalog/microsoft-365")}
+                  disabled={!entraConfigured}
                   className="inline-flex h-11 items-center justify-center rounded-md border border-[#0078d4] bg-white px-6 text-[15px] font-semibold text-[#0078d4] transition hover:bg-[#f3f9fd] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Explore Plans
@@ -252,7 +265,12 @@ export default function SignInPage() {
               </div>
             )}
 
-            {!demoLogin && !entraConfigured && !showCreds && (
+            {error && !showCreds && (
+              <div className="mt-4 rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-sm text-[#c42b2b]">
+                {error}
+              </div>
+            )}
+            {!entraConfigured && !showCreds && (
               <p className="mt-4 text-sm text-[#c47a00]">
                 Configure NEXT_PUBLIC_AZURE_AD_CLIENT_ID for Microsoft Entra sign-in.
               </p>
@@ -266,6 +284,15 @@ export default function SignInPage() {
             <p className="mt-5 text-[13px] text-[#8a8a8a]">
               Access requires a Microsoft 365 administrator account.
             </p>
+            {!showCreds && (
+              <button
+                type="button"
+                onClick={openEmergencyLogin}
+                className="mt-3 text-[12px] font-medium text-[#8a8a8a] underline-offset-2 hover:text-[#605e5c] hover:underline"
+              >
+                Emergency access
+              </button>
+            )}
 
             {showCreds && !mfa && (
               <form
@@ -274,12 +301,10 @@ export default function SignInPage() {
               >
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-base font-semibold text-[#2d2d2d]">Sign in</h2>
-                    {afterLoginPath?.startsWith("/catalog") && (
-                      <p className="mt-1 text-xs text-[#8a8a8a]">
-                        Sign in to explore plans available for your account.
-                      </p>
-                    )}
+                    <h2 className="text-base font-semibold text-[#2d2d2d]">Emergency access</h2>
+                    <p className="mt-1 text-xs text-[#8a8a8a]">
+                      Break-glass accounts only. Everyday sign-in uses Microsoft Entra ID.
+                    </p>
                   </div>
                   <button
                     type="button"

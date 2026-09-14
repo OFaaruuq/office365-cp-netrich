@@ -32,9 +32,37 @@ export default function Page() {
         title="Jobs & dead-letter"
         subtitle="Background sync jobs. Failed Microsoft API work must never be silent."
         actions={
-          <button type="button" className="nt-btn-on-brand text-xs" onClick={() => setDeadOnly((v) => !v)}>
-            {deadOnly ? "Show all jobs" : "Show dead-letter only"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="nt-btn-on-brand text-xs" onClick={() => setDeadOnly((v) => !v)}>
+              {deadOnly ? "Show all jobs" : "Show dead-letter only"}
+            </button>
+            <button
+              type="button"
+              className="nt-btn-outline text-xs"
+              onClick={() =>
+                void portalFetch("/api/csp/jobs", {
+                  method: "POST",
+                  headers,
+                  body: JSON.stringify({ name: "users.delta_sync", queue: "microsoft-sync" }),
+                }).then(load)
+              }
+            >
+              Enqueue Graph user sync
+            </button>
+            <button
+              type="button"
+              className="nt-btn-outline text-xs"
+              onClick={() =>
+                void portalFetch("/api/csp/jobs", {
+                  method: "POST",
+                  headers,
+                  body: JSON.stringify({ name: "catalog.sync", queue: "microsoft-sync" }),
+                }).then(load)
+              }
+            >
+              Enqueue PC catalog sync
+            </button>
+          </div>
         }
       />
       <div className="space-y-2">

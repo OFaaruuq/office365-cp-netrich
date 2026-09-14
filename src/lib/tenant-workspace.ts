@@ -1,29 +1,26 @@
-import {
-  recommendations as baseRecs,
-  renewals as baseRenewals,
-  subscriptions as baseSubs,
-  userRollup as baseRollup,
-  users as baseUsers,
-} from "@/lib/mock-data";
 import { findCustomer } from "@/lib/customer-store";
 import { listCatalogProducts } from "@/lib/catalog-store";
-import {
-  listTenantSubscriptions,
-  seedTenantSubscriptionsIfEmpty,
-  type TenantSubscription,
-} from "@/lib/subscription-store";
-import type { CatalogProduct, PortalUser, Subscription } from "@/lib/types";
+import { listDirectoryUsers, rollupDirectoryUsers } from "@/lib/directory-store";
+import { listTenantSubscriptions } from "@/lib/subscription-store";
+import type {
+  CatalogProduct,
+  PortalUser,
+  ProductRecommendation,
+  RenewalItem,
+  Subscription,
+  UserRollup,
+} from "@/lib/types";
 
 export type TenantWorkspace = {
   customerId: string;
   domain: string;
   name: string;
   users: PortalUser[];
-  userRollup: typeof baseRollup;
+  userRollup: UserRollup;
   subscriptions: Subscription[];
   costSummary: { monthly: number; yearly: number; triennially: number };
-  renewals: typeof baseRenewals;
-  recommendations: typeof baseRecs;
+  renewals: RenewalItem[];
+  recommendations: ProductRecommendation[];
   allowedCatalogs: Array<"microsoft-365" | "dynamics-365" | "azure" | "server-software">;
   /** Isolated security posture metrics — never shared across tenants */
   securityPosture: {
@@ -50,132 +47,64 @@ export type TenantWorkspace = {
   };
 };
 
-function remapEmail(email: string, domain: string): string {
-  const local = email.split("@")[0] || "user";
-  return `${local}@${domain}`;
-}
-
-/** Isolated workspace snapshot — never share another tenant's rows */
+/** Isolated workspace snapshot — directory + commerce stores only, never mock tenants */
 export function getTenantWorkspace(customerId: string): TenantWorkspace | null {
   const customer = findCustomer(customerId);
   if (!customer) return null;
 
-  const domain = customer.domain;
-  const scale =
-    customerId === "cust-orbit"
-      ? 0.35
-      : customerId === "cust-sigma"
-        ? 0.55
-        : customerId === "cust-nile"
-          ? 0.05
-          : 1;
-
-  const users = baseUsers.slice(0, Math.max(2, Math.round(baseUsers.length * scale))).map(
-    (u, i) => ({
-      ...u,
-      id: `${customerId}-${u.id}`,
-      email: remapEmail(u.email, domain),
-      displayName:
-        customerId === "cust-orbit"
-          ? ["Maya Chen", "Jonas Berg", "Priya Shah", "Leo Martins"][i % 4] || u.displayName
-          : customerId === "cust-sigma"
-            ? ["Dr. Amira Said", "Noah Klein", "Elena Ruiz", "Sam Patel"][i % 4] ||
-              u.displayName
-            : u.displayName,
-    })
-  );
-
-  const active = users.filter((u) => u.status === "active").length;
-  const blocked = users.filter((u) => u.status === "blocked").length;
-
-  const generatedSubs = baseSubs
-    .map((s, idx) => {
-      const purchased = Math.max(
-        customerId === "cust-nile" ? 0 : 1,
-        Math.round(s.purchased * scale)
-      );
-      const used = Math.min(purchased, Math.round(s.used * scale));
-      return {
-        ...s,
-        id: `${customerId}-${s.id}`,
-        purchased,
-        used,
-        available: Math.max(0, purchased - used),
-        price: Number((s.price * scale).toFixed(2)),
-        hasAlert: customerId === "cust-amtel" ? s.hasAlert : idx === 1 && customerId === "cust-sigma",
-      };
-    })
-    .filter((s) => s.purchased > 0);
-
-  const seedRows: TenantSubscription[] = generatedSubs.map((s) => {
-    const baseId = s.id.replace(`${customerId}-`, "");
-    const productId =
-      baseId === "sub1" ? "m365-1" : baseId === "sub2" ? "m365-2" : s.skuId || baseId;
-    return {
-      ...s,
-      customerId,
-      productId,
-      catalog: "microsoft-365",
-      unitPriceMonthly: s.purchased > 0 ? Number((s.price / s.purchased).toFixed(2)) : s.price,
-      purchasedAt: customer.lastSyncAt || new Date().toISOString(),
-      purchasedBy: "system-seed",
-    };
-  });
-
-  const subscriptions = seedTenantSubscriptionsIfEmpty(customerId, seedRows);
+  const users = listDirectoryUsers(customerId);
+  const userRollup = rollupDirectoryUsers(customerId);
+  const subscriptions = listTenantSubscriptions(customerId);
   const monthly = Number(subscriptions.reduce((n, s) => n + s.price, 0).toFixed(2));
-
+  const active = userRollup.active;
+  const blocked = userRollup.blocked;
   const licensed = users.filter((u) => (u.licenses || []).length > 0).length;
-  const securityPosture = {
-    mfaPercent: 0,
-    threatEvents30d: 0,
-    secureScore: 0,
-    lastAssessedAt: customer.lastSyncAt || new Date().toISOString(),
-    source: "local-unmeasured",
-  };
 
-  const solutions = {
-    collaboration: {
-      teamsActiveUsers: licensed || active,
-      sharePointSites: 0,
-      meetings30d: 0,
-      source: "derived-from-directory",
-    },
-    emailData: {
-      mailboxes: Math.max(1, active + blocked),
-      oneDriveGB: 0,
-      sharePointGB: 0,
-      source: "derived-from-directory",
-    },
-  };
+  const renewals: RenewalItem[] = subscriptions
+    .filter((s) => s.nextRenewal)
+    .map((s) => ({
+      id: `ren-${s.id}`,
+      productName: s.name,
+      licenses: s.purchased,
+      commitment: s.commitment === "Monthly" ? "Monthly commit" : "Annual commit",
+      billing: `Billed ${s.billingCycle}`,
+      renewalDate: s.nextRenewal,
+    }));
 
   return {
     customerId,
-    domain,
+    domain: customer.domain,
     name: customer.name,
     users,
-    userRollup: {
-      active,
-      pending: 0,
-      blocked,
-      error: 0,
-    },
+    userRollup,
     subscriptions,
     costSummary: { monthly, yearly: 0, triennially: 0 },
-    renewals: baseRenewals.map((r) => ({
-      ...r,
-      id: `${customerId}-${r.id}`,
-      licenses: Math.max(1, Math.round(r.licenses * scale)),
-    })),
-    recommendations: baseRecs.map((r) => ({
-      ...r,
-      id: `${customerId}-${r.id}`,
-    })),
+    renewals,
+    recommendations: [],
     allowedCatalogs: customer.config?.allowedCatalogs?.length
       ? customer.config.allowedCatalogs
       : ["microsoft-365", "dynamics-365", "azure", "server-software"],
-    securityPosture,
-    solutions,
+    securityPosture: {
+      mfaPercent: 0,
+      threatEvents30d: 0,
+      secureScore: 0,
+      lastAssessedAt: customer.lastSyncAt || new Date().toISOString(),
+      source: "local-unmeasured",
+    },
+    solutions: {
+      collaboration: {
+        teamsActiveUsers: licensed || active,
+        sharePointSites: 0,
+        meetings30d: 0,
+        source: "derived-from-directory",
+      },
+      emailData: {
+        mailboxes: active + blocked,
+        oneDriveGB: 0,
+        sharePointGB: 0,
+        source: "derived-from-directory",
+      },
+    },
   };
 }
 

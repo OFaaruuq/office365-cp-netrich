@@ -207,10 +207,14 @@ export function payPurchaseOrder(
   }
 
   const now = new Date().toISOString();
+  const ref = String(paymentRef || "").trim();
+  if (!ref) {
+    return { error: "Payment reference is required.", code: "PAYMENT_REF_REQUIRED" };
+  }
   order.status = "PAID";
   order.paidAt = now;
   order.paidBy = actorEmail;
-  order.paymentRef = paymentRef || `PAY-${Date.now().toString(36).toUpperCase()}`;
+  order.paymentRef = ref;
   order.updatedAt = now;
   save(data);
 

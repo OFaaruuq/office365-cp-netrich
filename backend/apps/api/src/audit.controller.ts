@@ -3,11 +3,13 @@ import { withTenantContext } from "../../../libs/prisma";
 import {
   CurrentTenant,
   isPartnerRole,
+  RequirePermissions,
   type TenantContext,
 } from "../../../libs/guards";
 
 @Controller("audit")
 export class AuditController {
+  @RequirePermissions("audit.read")
   @Get()
   async list(
     @CurrentTenant() tenant: TenantContext,

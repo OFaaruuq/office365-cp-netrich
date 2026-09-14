@@ -1,7 +1,8 @@
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import { prisma, withTenantContext } from "./prisma";
-import { acquireGraphToken, syncDirectoryUsers } from "./graph-client";
+import { acquireGraphToken, fetchSecureScore, fetchServiceHealth, syncDirectoryUsers } from "./graph-client";
+import { acquirePartnerCenterToken, listPartnerCenterCustomers } from "./partner-center";
 
 export async function enqueueJob(input: {
   name: string;
@@ -82,6 +83,32 @@ export async function processJobById(id: string) {
           }
         });
       }
+    } else if (job.name === "security.secure_score_sync") {
+      if (!job.customerId) throw new Error("customerId required");
+      const token = await acquireGraphToken();
+      if (!token.ok) throw new Error(token.message);
+      const score = await fetchSecureScore(token.accessToken);
+      await withTenantContext({ customerId: job.customerId, role: "partner_admin" }, async (tx) => {
+        await tx.securitySnapshot.create({
+          data: {
+            customerId: job.customerId!,
+            secureScore: score.secureScore,
+            mfaPercent: score.mfaCoverage,
+            threatCount: 0,
+            payload: score as object,
+          },
+        });
+      });
+    } else if (job.name === "service.health_sync") {
+      const token = await acquireGraphToken();
+      if (!token.ok) throw new Error(token.message);
+      await fetchServiceHealth(token.accessToken);
+    } else if (job.name === "catalog.sync" || job.name === "partner_center.customers_sync") {
+      const token = await acquirePartnerCenterToken();
+      if (!token.ok) throw new Error(token.message);
+      await listPartnerCenterCustomers(token.accessToken);
+    } else if (job.name === "webhooks.ingest" || job.name === "maintenance.ping") {
+      /* payload already stored on the job row */
     }
     const done = await prisma.job.update({
       where: { id },

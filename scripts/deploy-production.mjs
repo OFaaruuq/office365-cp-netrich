@@ -157,15 +157,11 @@ function validateProductionEnv(env) {
   }
 
   if (!env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID) {
-    warnings.push(
-      "NEXT_PUBLIC_AZURE_AD_CLIENT_ID is empty — Entra SSO will be unavailable (demo login should stay off)"
-    );
+    errors.push("NEXT_PUBLIC_AZURE_AD_CLIENT_ID is required for Microsoft Entra production sign-in");
   }
 
   if (env.ALLOW_DEMO_LOGIN === "true") {
-    warnings.push(
-      "ALLOW_DEMO_LOGIN=true — credential/TOTP demo login is enabled (not recommended for real production)"
-    );
+    errors.push("ALLOW_DEMO_LOGIN=true is not allowed in production — Entra SSO is the only sign-in path");
   }
 
   if (env.NODE_ENV && env.NODE_ENV !== "production") {

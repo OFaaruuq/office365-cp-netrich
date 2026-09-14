@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 import path from "path";
 import { loadCustomers } from "@/lib/customer-store";
+import { DEMO_CUSTOMER_IDS } from "@/lib/tenancy-data";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const FILE = path.join(DATA_DIR, "foundation.json");
@@ -86,6 +87,12 @@ function defaultFlags() {
 function ensureSeed(data: FoundationFile): FoundationFile {
   if (!data.flags?.length) data.flags = defaultFlags();
   if (!data.gdap) data.gdap = [];
+  data.gdap = data.gdap.filter(
+    (g) =>
+      !DEMO_CUSTOMER_IDS.has(g.customerId) &&
+      !/^GDAP-CUST-/i.test(g.microsoftRelationshipId) &&
+      g.microsoftRelationshipId !== "GDAP-DEMO-001"
+  );
   if (!data.onboarding) data.onboarding = {};
   if (!data.adminAccess) data.adminAccess = [];
   if (!data.auditExtra) data.auditExtra = [];
@@ -102,26 +109,7 @@ function ensureSeed(data: FoundationFile): FoundationFile {
         client_admin_created: Boolean(c.adminEmail),
       };
     }
-    if (c.config?.gdapEnabled && !data.gdap.some((g) => g.customerId === c.id)) {
-      const expires = new Date();
-      expires.setDate(expires.getDate() + 97);
-      data.gdap.push({
-        id: `gdap-${c.id}`,
-        customerId: c.id,
-        microsoftRelationshipId: `GDAP-${c.id.toUpperCase()}`,
-        displayName: `Netrich ↔ ${c.name}`,
-        status: "active",
-        activatedAt: new Date().toISOString(),
-        expiresAt: expires.toISOString(),
-        durationDays: 180,
-        roles: [
-          { roleDefinitionId: "fe930be7-5e62-47db-91af-98c3a49a38b1", roleName: "User Administrator" },
-          { roleDefinitionId: "4d6ac14f-3453-41d6-8982-aa0a9165608b", roleName: "License Administrator" },
-          { roleDefinitionId: "f023fd81-a637-4b56-95fd-791ac713ca11", roleName: "Service Support Administrator" },
-          { roleDefinitionId: "729827e3-9c14-49f7-bb12-fa0d8e4c4a6a", roleName: "Helpdesk Administrator" },
-        ],
-      });
-    }
+    // GDAP rows are created from Partner Center / admin actions — never invented here.
   }
   return data;
 }
@@ -187,12 +175,12 @@ export function platformHealthLocal() {
     stage: "foundation",
     postgres: "not_configured",
     redis: "not_configured",
-    workers: "stub",
+    workers: "local-inline",
     nestApi: "try http://localhost:8080/health when Docker/Postgres is running",
     microsoft: [
       { component: "key_vault", status: "not_configured" },
-      { component: "partner_center", status: "not_configured", detail: "Phase 2 read-only" },
-      { component: "microsoft_graph", status: "not_configured", detail: "Phase 2" },
+      { component: "partner_center", status: "not_configured", detail: "Read-only when PARTNER_CENTER_* env is set" },
+      { component: "microsoft_graph", status: "not_configured", detail: "Live when GRAPH_* env is set" },
       { component: "secure_application_model", status: "not_configured" },
     ],
     timestamp: new Date().toISOString(),

@@ -18,7 +18,6 @@ import {
   setAccountPassword,
 } from "@/lib/auth/password-store";
 import { writeAudit } from "@/lib/audit-log";
-import { isDemoLoginAllowed } from "@/lib/auth/demo-mode";
 import type { PortalRole } from "@/lib/tenancy-types";
 
 function withExtras(accountId: string) {
@@ -83,19 +82,10 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const kind = String(body.kind || "client");
   const password = body.password != null ? String(body.password) : "";
-  if (kind !== "staff" && !password) {
+  if (!password) {
     return NextResponse.json(
       {
-        error: "Client admins require a unique password (at least 12 characters, letters and numbers).",
-        code: "PASSWORD_REQUIRED",
-      },
-      { status: 400 }
-    );
-  }
-  if (!password && !isDemoLoginAllowed()) {
-    return NextResponse.json(
-      {
-        error: "Password required (at least 12 characters, including letters and numbers).",
+        error: "A unique password is required (at least 12 characters, letters and numbers).",
         code: "PASSWORD_REQUIRED",
       },
       { status: 400 }
@@ -136,9 +126,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({
       account: { ...result, ...withExtras(result.id) },
-      message: password
-        ? "Staff account created with custom password. MFA enrollment required on first sign-in."
-        : "Staff account created with the shared demo password. MFA enrollment required on first sign-in.",
+      message: "Staff account created with a unique password. Sign-in is Microsoft Entra ID; password is for emergency access only if this email is on the break-glass list. MFA enrollment required on first emergency sign-in.",
     });
   }
 
@@ -174,7 +162,7 @@ export async function POST(request: NextRequest) {
     account: { ...result, ...withExtras(result.id) },
     message: password
       ? "Client Admin created with custom password. MFA enrollment required on first sign-in."
-      : "Client Admin created with the shared demo password. MFA enrollment required on first sign-in.",
+      : "Client Admin created. MFA enrollment required on first sign-in.",
   });
 }
 
@@ -267,30 +255,13 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (action === "clear_password") {
-    if (!isDemoLoginAllowed()) {
-      return NextResponse.json(
-        {
-          error: "Cannot clear a password while demo login is disabled. Set a new password instead.",
-          code: "PASSWORD_REQUIRED",
-        },
-        { status: 400 }
-      );
-    }
-    clearAccountPassword(accountId);
-    writeAudit({
-      action: "users.password_change",
-      actorAccountId: auth.session.accountId,
-      actorEmail: auth.session.email,
-      actorRole: auth.session.role,
-      customerId: account.customerId,
-      detail: `Password cleared for ${account.email} (reverts to default demo password)`,
-      meta: { accountId },
-    });
-    return NextResponse.json({
-      ok: true,
-      account: { ...account, ...withExtras(accountId) },
-      message: "Custom password cleared. Account uses the default demo password again.",
-    });
+    return NextResponse.json(
+      {
+        error: "Passwords cannot be cleared. Set a new unique password instead.",
+        code: "PASSWORD_REQUIRED",
+      },
+      { status: 400 }
+    );
   }
 
   const isClient = account.role === "customer_admin";

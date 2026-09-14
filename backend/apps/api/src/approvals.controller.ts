@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, BadRequestException } from "@nestjs/common";
 import { withTenantContext } from "../../../libs/prisma";
-import { CurrentTenant, RequirePartnerAdmin, type TenantContext } from "../../../libs/guards";
+import { CurrentTenant, RequirePartnerAdmin, RequirePermissions, type TenantContext } from "../../../libs/guards";
 
 /**
  * Privileged operation approvals (four-eyes).
@@ -9,6 +9,7 @@ import { CurrentTenant, RequirePartnerAdmin, type TenantContext } from "../../..
 @RequirePartnerAdmin()
 @Controller("approvals")
 export class ApprovalsController {
+  @RequirePermissions("platform.admin")
   @Get()
   async list(@CurrentTenant() tenant: TenantContext) {
     return withTenantContext(tenant, async (tx) => {
@@ -20,6 +21,7 @@ export class ApprovalsController {
     });
   }
 
+  @RequirePermissions("platform.admin")
   @Post()
   async request(
     @CurrentTenant() tenant: TenantContext,
@@ -59,6 +61,7 @@ export class ApprovalsController {
     });
   }
 
+  @RequirePermissions("platform.admin")
   @Post(":id/decide")
   async decide(
     @CurrentTenant() tenant: TenantContext,

@@ -224,6 +224,7 @@ export class PartnerAdminGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    if (isPublicRoute(this.reflector, context)) return true;
     const required = this.reflector.getAllAndOverride<boolean>(REQUIRE_PARTNER_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -243,6 +244,7 @@ export class RbacGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    if (isPublicRoute(this.reflector, context)) return true;
     const required =
       this.reflector.getAllAndOverride<PermissionKey[]>(REQUIRE_PERMISSIONS_KEY, [
         context.getHandler(),

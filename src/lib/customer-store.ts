@@ -1,44 +1,45 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 import path from "path";
-import { CLIENT_TENANTS, DEFAULT_TENANT_CONFIG } from "@/lib/tenancy-data";
+import { DEMO_CUSTOMER_IDS, DEFAULT_TENANT_CONFIG } from "@/lib/tenancy-data";
 import type { ClientTenant } from "@/lib/tenancy-types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const FILE = path.join(DATA_DIR, "customers.json");
 
 export function normalizeCustomer(c: ClientTenant): ClientTenant {
-  const seed = CLIENT_TENANTS.find((s) => s.id === c.id);
   return {
-    ...(seed || {}),
     ...c,
     createdByPartner: c.createdByPartner !== false,
-    // Recover missing config from seed; live config always wins when present
     config: {
       ...DEFAULT_TENANT_CONFIG,
-      ...(seed?.config || {}),
       ...(c.config || {}),
     },
   };
 }
 
+function purgeDemo(customers: ClientTenant[]): { list: ClientTenant[]; changed: boolean } {
+  const list = customers.filter((c) => !DEMO_CUSTOMER_IDS.has(c.id)).map(normalizeCustomer);
+  return { list, changed: list.length !== customers.length };
+}
+
 /**
- * Load tenants. Fail CLOSED if the live file exists but is unreadable/corrupt
- * (never fall back to "active" seed data — that would undo suspend).
+ * Load tenants. Fail CLOSED if the live file exists but is unreadable/corrupt.
  */
 export function loadCustomers(): ClientTenant[] {
   try {
     if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
     if (!existsSync(FILE)) {
-      const seed = CLIENT_TENANTS.map(normalizeCustomer);
-      atomicWrite(FILE, JSON.stringify(seed, null, 2));
-      return seed;
+      atomicWrite(FILE, "[]");
+      return [];
     }
     const parsed = JSON.parse(readFileSync(FILE, "utf8")) as ClientTenant[];
     if (!Array.isArray(parsed)) {
       console.error("[customer-store] customers.json is not an array — failing closed");
       return [];
     }
-    return parsed.map(normalizeCustomer);
+    const { list, changed } = purgeDemo(parsed);
+    if (changed) saveCustomers(list);
+    return list;
   } catch (err) {
     if (existsSync(FILE)) {
       console.error(
@@ -48,9 +49,8 @@ export function loadCustomers(): ClientTenant[] {
       return [];
     }
     try {
-      const seed = CLIENT_TENANTS.map(normalizeCustomer);
-      atomicWrite(FILE, JSON.stringify(seed, null, 2));
-      return seed;
+      atomicWrite(FILE, "[]");
+      return [];
     } catch {
       return [];
     }
@@ -65,11 +65,18 @@ function atomicWrite(filePath: string, contents: string) {
 }
 
 export function saveCustomers(customers: ClientTenant[]) {
-  // Always persist normalized records so config/portal flags are never stripped
-  atomicWrite(FILE, JSON.stringify(customers.map(normalizeCustomer), null, 2));
+  atomicWrite(
+    FILE,
+    JSON.stringify(
+      customers.filter((c) => !DEMO_CUSTOMER_IDS.has(c.id)).map(normalizeCustomer),
+      null,
+      2
+    )
+  );
 }
 
 export function findCustomer(id: string): ClientTenant | undefined {
+  if (DEMO_CUSTOMER_IDS.has(id)) return undefined;
   return loadCustomers().find((c) => c.id === id);
 }
 

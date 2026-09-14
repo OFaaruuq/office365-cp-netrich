@@ -56,6 +56,7 @@ export class CustomersController {
   }
 
   @RequirePartnerAdmin()
+  @RequirePermissions("tenant.read")
   @Get()
   async list(
     @CurrentTenant() tenant: TenantContext,
@@ -86,6 +87,7 @@ export class CustomersController {
     });
   }
 
+  @RequirePermissions("tenant.read")
   @Get(":id")
   async one(@Param("id") id: string, @CurrentTenant() tenant: TenantContext) {
     return withTenantContext(tenant, async (tx) => {

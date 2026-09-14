@@ -11,8 +11,7 @@ import {
 import { assertClientPortalActive } from "@/lib/auth/guards";
 import { writeAudit } from "@/lib/audit-log";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
-import { isDemoLoginAllowed } from "@/lib/auth/demo-mode";
-import { verifyAccountPassword } from "@/lib/auth/password-store";
+import { verifyAccountPassword, hasCustomPassword } from "@/lib/auth/password-store";
 import {
   beginMfaEnrollment,
   createMfaChallenge,
@@ -27,7 +26,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       authenticated: false,
       user: null,
-      demoLogin: isDemoLoginAllowed(),
+      demoLogin: false,
+      emergencyLogin: true,
       mfaRequired: true,
     });
   }
@@ -38,7 +38,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     authenticated: true,
     user: toClientSession(session),
-    demoLogin: isDemoLoginAllowed(),
+    demoLogin: false,
+    emergencyLogin: true,
     mfaRequired: true,
   });
 }
@@ -122,12 +123,12 @@ export async function POST(request: NextRequest) {
   const { loadPlatform } = await import("@/lib/platform-store");
   const isBreakGlass = loadPlatform().breakGlassEmails.includes(emailPreview);
 
-  if (!isDemoLoginAllowed() && !isBreakGlass) {
+  if (!isBreakGlass) {
     return NextResponse.json(
       {
         error:
-          "Credential demo login is disabled. Configure Microsoft Entra ID (MSAL) or set ALLOW_DEMO_LOGIN=true for staging demos.",
-        code: "DEMO_LOGIN_DISABLED",
+          "Password sign-in is limited to Super Admin emergency (break-glass) accounts. Use Sign in with Microsoft.",
+        code: "ENTRA_REQUIRED",
       },
       { status: 403 }
     );
@@ -216,6 +217,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (isBreakGlass && !hasCustomPassword(account.id)) {
+    return NextResponse.json(
+      {
+        error:
+          "Break-glass accounts require a unique portal password set by Super Admin.",
+        code: "BREAK_GLASS_PASSWORD_REQUIRED",
+      },
+      { status: 403 }
+    );
+  }
+
   const gate = await resolveCustomerGate(account);
   if (!gate.ok) return gate.response;
 
@@ -241,7 +253,7 @@ export async function POST(request: NextRequest) {
     actorRole: account.role,
     customerId: account.customerId,
     detail: enrolled ? "Password OK — MFA code required" : "Password OK — MFA enrollment required",
-    meta: { ip, purpose },
+    meta: { ip, purpose, breakGlass: isBreakGlass },
   });
 
   if (enrolled) {

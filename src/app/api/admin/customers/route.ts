@@ -272,7 +272,7 @@ export async function PATCH(request: NextRequest) {
       apr.status = "executed";
       savePlatform(platform);
     }
-    // Soft terminate by default (compliance retention). Pass force=true to hard-purge demo data.
+    // Soft terminate by default (compliance retention). Pass force=true to hard-purge.
     if (!body.force) {
       const terminating: ClientTenant = {
         ...current,

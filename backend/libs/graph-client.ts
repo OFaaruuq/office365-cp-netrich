@@ -123,3 +123,70 @@ export async function syncDirectoryGroups(accessToken: string) {
   }
   return groups;
 }
+
+function mapServiceStatus(status?: string): "Healthy" | "Advisory" | "Incident" {
+  const s = (status || "").toLowerCase();
+  if (s.includes("restor") || s.includes("investigat") || s.includes("warning") || s.includes("advisory") || s.includes("degraded")) {
+    return "Advisory";
+  }
+  if (s.includes("incident") || s.includes("outage") || s.includes("interruption") || s === "serviceunhealthy") {
+    return "Incident";
+  }
+  return "Healthy";
+}
+
+export async function fetchServiceHealth(accessToken: string) {
+  const data = await graphGet<{
+    value?: Array<{ id?: string; service?: string; status?: string }>;
+  }>(accessToken, "https://graph.microsoft.com/v1.0/admin/serviceAnnouncement/healthOverviews");
+  return (data.value || []).map((row) => ({
+    service: row.service || row.id || "Unknown",
+    status: mapServiceStatus(row.status),
+    detail: row.status,
+    source: "graph" as const,
+  }));
+}
+
+export async function fetchSecureScore(accessToken: string) {
+  const data = await graphGet<{
+    value?: Array<{
+      currentScore?: number;
+      maxScore?: number;
+      enabledServices?: string[];
+      averageComparativeScores?: Array<{ basis?: string; averageScore?: number }>;
+    }>;
+  }>(accessToken, "https://graph.microsoft.com/v1.0/security/secureScores?$top=1");
+  const row = data.value?.[0];
+  if (!row) {
+    return {
+      secureScore: 0,
+      maxScore: 0,
+      mfaCoverage: 0,
+      source: "graph" as const,
+      recommendations: [{ severity: "INFO", text: "Graph returned no Secure Score records for this tenant." }],
+    };
+  }
+  const current = Math.round(row.currentScore || 0);
+  const max = Math.round(row.maxScore || 0);
+  const pct = max > 0 ? Math.round((current / max) * 100) : current;
+  return {
+    secureScore: pct,
+    maxScore: max,
+    currentScore: current,
+    mfaCoverage: 0,
+    privilegedUsers: 0,
+    riskyUsers: 0,
+    disabledUsers: 0,
+    staleAccounts: 0,
+    guestAccounts: 0,
+    legacyAuth: 0,
+    adminMfa: 0,
+    source: "graph" as const,
+    recommendations: [
+      {
+        severity: "INFO",
+        text: `Microsoft Secure Score ${current}/${max} (${pct}%). MFA coverage requires Graph identity reports.`,
+      },
+    ],
+  };
+}

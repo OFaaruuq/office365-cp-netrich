@@ -17,8 +17,8 @@
 | **Frontend / BFF** | Next.js (`office365.cp.netrichtechnologies.com`, local `:3000`) |
 | **Backend API** | NestJS in `backend/apps/api` (`api.office365.cp…`, local `:8080`) |
 | **Database** | PostgreSQL (Prisma) — Foundation; `.data` remains MVP dual-write bridge |
-| **Cache / queue** | Redis + BullMQ worker stubs |
-| **Identity** | Entra access-token validation (Nest) + Next demo email/TOTP · production = Entra MFA claims |
+| **Cache / queue** | Redis + BullMQ workers (inline process if Redis is down) |
+| **Identity** | Entra access-token validation (Nest + Next) · break-glass password + TOTP on Next for allow-listed emails |
 
 ### Live API surface (today)
 
@@ -29,7 +29,7 @@
 | Next CSP BFF | `/api/csp/*` → Nest `/v1/*` or `.data/foundation.json` |
 | Next Workspace | `/api/me/*`, `/api/users`, `/api/products`, `/api/subscriptions`, `/api/commerce/subscribe` |
 | Next Support | `/api/support/threads`, `/api/chat` |
-| Nest Foundation | `/health`, `/v1/auth/*`, `/v1/customers`, `/v1/gdap`, `/v1/onboarding`, `/v1/rbac`, `/v1/flags`, `/v1/microsoft/integration`, `/v1/audit`, `/v1/admin-access`, `/v1/approvals` |
+| Nest Foundation | `/health`, `/v1/auth/*`, `/v1/customers`, `/v1/gdap`, `/v1/onboarding`, `/v1/rbac`, `/v1/flags`, `/v1/microsoft/*`, `/v1/audit`, `/v1/admin-access`, `/v1/approvals`, `/v1/directory/*`, `/v1/jobs`, `/v1/notifications`, `/v1/subscriptions`, `/v1/orders`, `/v1/invoices`, `/v1/service-health`, `/v1/security`, `/v1/graph-sync`, `/v1/webhooks/:provider` |
 
 ---
 
@@ -468,7 +468,7 @@ interface IntegrationProvider {
 
 | Category | Examples | Why |
 |----------|----------|-----|
-| **Support** | Zendesk, Freshdesk, Microsoft Teams | Replace demo chat |
+| **Support** | Zendesk, Freshdesk, Microsoft Teams | Replace local chat |
 | **Billing** | Partner Center (primary), Stripe (optional add-ons) | Invoices & payments |
 | **CRM** | HubSpot, Dynamics 365 Sales | Customer lifecycle |
 | **Monitoring** | Datadog, Azure Monitor, Sentry | API/worker health |
@@ -610,21 +610,21 @@ Frontend keeps only `NEXT_PUBLIC_*` (SPA client ID, API base URL). **No Partner 
 - Partner Control Center + customer nav; `/api/csp` BFF; `.data/*.json` + `foundation.json`
 
 ### Done — Phase 1 Foundation (`backend/`)
-- NestJS API + BullMQ worker stubs
-- Prisma schema (customers ≠ microsoft_tenants, GDAP, RBAC, sessions, audit, onboarding, flags, jobs, approvals)
+- NestJS API + BullMQ workers (Graph/PC jobs fail honestly when credentials are missing)
+- Prisma schema (customers ≠ microsoft_tenants, GDAP, RBAC, directory, commerce, security snapshots, support, jobs, approvals)
 - RLS SQL helpers/policies; docker-compose Postgres/Redis
-- Entra token validation + session create; SAM/Key Vault status stubs
+- Entra token validation + session create; SAM/Graph/PC token paths when env is set
 - Seed + `migrate:from-data` from `.data`
 
 ### Phase 2 — Microsoft Connected
-- Live SAM token acquire/refresh with certificates + Key Vault
-- Graph delta sync; Partner Center **read-only**
-- Throttling, DLQ UI, service health / security expansion
+- Live SAM token acquire/refresh with certificates + Key Vault (env client secrets work in non-prod)
+- Graph delta sync; Partner Center **read-only** (in-repo when credentials are set)
+- Throttling, DLQ UI, service health / Secure Score from Graph
 
 ### Phase 3 — Full CSP
-- NCE eligibility + order state machine + idempotency
-- Quotes, renewals, billing/reconciliation, Azure domain
-- Public API, webhooks, full observability
+- NCE Partner Center **writes** after `PARTNER_CENTER_WRITES_ENABLED=true`
+- Quotes/renewals billing reconciliation, Azure consumption domain
+- Public partner API, vault-backed integrations, full observability
 
 ---
 
@@ -634,7 +634,7 @@ Frontend keeps only `NEXT_PUBLIC_*` (SPA client ID, API base URL). **No Partner 
 backend/
   apps/
     api/src/                 # NestJS controllers (auth, customers, gdap, …)
-    worker/src/              # BullMQ stub worker
+    worker/src/              # BullMQ worker
   libs/                      # prisma, entra, sam, rbac, guards
   prisma/                    # schema, migrations, seed, rls*.sql
   scripts/migrate-from-data.ts

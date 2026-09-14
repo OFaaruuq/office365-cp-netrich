@@ -39,24 +39,30 @@ export default function EmailDataPage() {
     sharePointGB: 0,
   };
 
-  const items = [
+  const tools = [
     {
       title: "Exchange Online",
       description: "Business email, calendars, and contacts hosted in Microsoft 365.",
       icon: Mail,
-      metric: `${email.mailboxes} mailboxes`,
+      metric: `${email.mailboxes} mailboxes (directory)`,
     },
     {
       title: "OneDrive for Business",
       description: "Personal cloud storage with enterprise security and sharing controls.",
       icon: HardDrive,
-      metric: `${email.oneDriveGB} GB used`,
+      metric:
+        email.source === "derived-from-directory"
+          ? "Not measured until Graph sync"
+          : `${email.oneDriveGB} GB used`,
     },
     {
       title: "SharePoint & Lists",
       description: "Structured data and document management for teams.",
       icon: Database,
-      metric: `${email.sharePointGB} GB site storage`,
+      metric:
+        email.source === "derived-from-directory"
+          ? "Not measured until Graph sync"
+          : `${email.sharePointGB} GB site storage`,
     },
   ];
 
@@ -72,7 +78,7 @@ export default function EmailDataPage() {
       </p>
       <p className="mb-6 text-xs text-nt-text-subtle">{workspace.domain}</p>
       <div className="grid gap-4 md:grid-cols-3">
-        {items.map((t) => {
+        {tools.map((t) => {
           const Icon = t.icon;
           return (
             <div key={t.title} className="nt-card group p-6 transition hover:-translate-y-0.5">

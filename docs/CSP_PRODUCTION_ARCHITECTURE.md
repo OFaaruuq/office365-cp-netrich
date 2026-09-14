@@ -28,10 +28,10 @@ Internet → WAF → Next.js UI → NestJS API
 
 | Stage | Contents | In-repo |
 |-------|----------|---------|
-| **MVP** | Next.js, `.data` JSON, demo email+TOTP, local commerce, hard isolation | Yes — production UI path |
-| **Foundation (Phase 1)** | NestJS, Postgres+RLS, Entra path, SAM stubs, GDAP/onboarding/RBAC, Partner Control Center, price/quotes/renewals, jobs/DLQ, sessions, notifications, security center, approvals, break-glass | Yes — `backend/` + `/api/csp` + platform store |
-| **Microsoft Connected (Phase 2)** | Live SAM, GDAP sync, Graph + Partner Center **read-only** | Planned |
-| **Full CSP (Phase 3)** | NCE commerce, quotes/orders, billing/recon, Azure domain, public API | Planned |
+| **MVP** | Next.js, `.data` JSON, Entra SSO, local commerce, hard isolation | Yes — production UI path |
+| **Foundation (Phase 1)** | NestJS, Postgres+RLS, Entra path, SAM/Graph/PC token clients, GDAP/onboarding/RBAC, Partner Control Center, price/quotes/renewals, jobs/DLQ, notifications, security (honest unmeasured until Graph), approvals, break-glass | Yes — `backend/` + `/api/csp` + platform store |
+| **Microsoft Connected (Phase 2)** | Live Graph + Partner Center **read-only** when credentials are set | In-repo (fails with `*_NOT_CONFIGURED` until env is set) |
+| **Full CSP (Phase 3)** | NCE Partner Center writes, Azure consumption, public API | Writes gated by `PARTNER_CENTER_WRITES_ENABLED` |
 
 **Rule:** no Partner Center **write** commerce until Phase 2 read-only sync is solid.
 
@@ -48,7 +48,7 @@ Browser → Microsoft Entra ID (SSO, MFA, Conditional Access)
 ```
 
 - Do **not** use Netrich-managed Google Authenticator as primary MFA for Microsoft admins.
-- Demo email + password + TOTP remains **dev-only** (`ALLOW_DEMO_LOGIN`).
+- Emergency password + TOTP is limited to Super Admin **break-glass** emails (unique password, never a shared secret).
 - Partner Center App+User APIs require MFA-compliant tokens (enforced for Partner Center).
 
 Session model: `sessions` table, refresh token hash, revoke / sign-out-all, risk handling stubs.

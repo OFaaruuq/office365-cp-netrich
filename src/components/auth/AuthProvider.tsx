@@ -39,6 +39,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
                 idToken: redirect.idToken,
               }),
             });
+            if (!minted.ok) {
+              window.location.replace("/?error=entra");
+              return;
+            }
             const data = (await minted.json().catch(() => ({}))) as { user?: { role?: string } };
             const role = data.user?.role;
             const home =
@@ -47,7 +51,15 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
                 : role === "support_technical" || role === "support_billing"
                   ? "/support"
                   : "/dashboard";
-            window.location.replace(home);
+            let dest = home;
+            try {
+              const stored = sessionStorage.getItem("nt-after-login");
+              sessionStorage.removeItem("nt-after-login");
+              if (stored && stored.startsWith("/") && !stored.startsWith("//")) dest = stored;
+            } catch {
+              /* ignore */
+            }
+            window.location.replace(dest);
             return;
           }
         } catch {

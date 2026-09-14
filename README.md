@@ -6,7 +6,7 @@ Multi-tenant CSP control panel for **netrichtechnologies**.
 
 | Maturity | Status |
 |----------|--------|
-| **MVP UI** | Live — Next.js portal, demo auth, local commerce, hard isolation |
+| **MVP UI** | Live — Next.js portal, Entra SSO, local commerce, hard isolation |
 | **Phase 1 Foundation** | In-repo — NestJS/Prisma, Entra session mint, SAM/Graph token path when configured, GDAP/onboarding, local commerce + NCE rules, jobs/notifications APIs |
 | **Phase 2–3** | Live Graph / Partner Center when credentials are set; NCE Partner Center writes remain disabled until `PARTNER_CENTER_WRITES_ENABLED=true` |
 
@@ -25,7 +25,7 @@ Multi-tenant CSP control panel for **netrichtechnologies**.
 
 | Area | What works today |
 |------|------------------|
-| **Sign-in** | Microsoft Entra SSO (when client ID set) · Demo email + password + TOTP MFA (local) |
+| **Sign-in** | Microsoft Entra SSO · break-glass password + TOTP for allow-listed emergency emails |
 | **Partner Control Center** | Overview/reporting, customers, onboarding, GDAP, catalog, pricing, quotes, orders, renewals, invoices, jobs/DLQ, roles, approvals, break-glass, graph-sync, audit, flags |
 | **Client workspace** | Dashboard, users (create/block/licenses), products, domains, service health, billing, renewals, security, notifications, sessions, organization, administrators, audit |
 | **Tenancy** | Signed session, portal lock, scoped APIs, soft **TERMINATING** lifecycle + four-eyes, view-as-customer (audited) |
@@ -42,8 +42,8 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-1. **Sign in with Microsoft** if `NEXT_PUBLIC_AZURE_AD_CLIENT_ID` is set.
-2. Or demo (dev only): `admin@netrichtechnologies.com` / `demo` → Google Authenticator MFA. Client admins need unique passwords set by Super Admin.
+1. **Sign in with Microsoft** (`NEXT_PUBLIC_AZURE_AD_CLIENT_ID` required in production).
+2. Super Admin provisions portal accounts before first Entra sign-in. Emergency access is break-glass only (unique password + TOTP).
 3. Tenants are never listed on the public login page.
 
 ### Partner Control Center URLs
@@ -91,8 +91,6 @@ NEXT_PUBLIC_CSP_API_URL=http://localhost:8080
 NEXT_PUBLIC_AZURE_AD_CLIENT_ID=
 NEXT_PUBLIC_AZURE_AD_AUTHORITY=https://login.microsoftonline.com/common
 # PORTAL_SESSION_SECRET=     # required in production (≥32 chars)
-# ALLOW_DEMO_LOGIN=true
-# DEMO_LOGIN_PASSWORD=demo
 ```
 
 ## Scripts (UI package)

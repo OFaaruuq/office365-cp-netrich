@@ -24,7 +24,6 @@ export type MfaChallenge = {
 interface SessionContextValue {
   user: SessionUser | null;
   ready: boolean;
-  demoLogin: boolean;
   entraConfigured: boolean;
   signIn: (accountId: string) => Promise<SessionUser | MfaChallenge>;
   signInWithCredentials: (
@@ -51,7 +50,6 @@ function isMfaChallenge(data: Record<string, unknown>): data is MfaChallenge & {
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
-  const [demoLogin, setDemoLogin] = useState(true);
   const [ready, setReady] = useState(false);
   const entraConfigured = Boolean(
     process.env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID &&
@@ -69,7 +67,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (data.user) setUser(data.user as SessionUser);
-    if (typeof data.demoLogin === "boolean") setDemoLogin(data.demoLogin);
   }, []);
 
   useEffect(() => {
@@ -89,9 +86,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             setUser(null);
           } else if (sessionData.user) {
             setUser(sessionData.user as SessionUser);
-          }
-          if (typeof sessionData.demoLogin === "boolean") {
-            setDemoLogin(sessionData.demoLogin);
           }
         }
       } catch {
@@ -225,7 +219,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return {
       user,
       ready,
-      demoLogin,
       entraConfigured,
       signIn,
       signInWithCredentials,
@@ -241,7 +234,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [
     user,
     ready,
-    demoLogin,
     entraConfigured,
     signIn,
     signInWithCredentials,

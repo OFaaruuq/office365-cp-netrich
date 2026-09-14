@@ -65,7 +65,7 @@ export class AuthController {
       throw new UnauthorizedException({
         code: "ENTRA_VALIDATION_FAILED",
         message:
-          "Set AZURE_AD_API_AUDIENCE and send a valid Entra access token. Demo login remains on Next.js only.",
+          "Set AZURE_AD_API_AUDIENCE and send a valid Entra access token.",
       });
     }
 

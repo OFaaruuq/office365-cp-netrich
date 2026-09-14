@@ -27,7 +27,6 @@ function jwksForTenant(tenantId: string) {
 /**
  * Validate Microsoft Entra access token.
  * Production: set AZURE_AD_API_AUDIENCE (api://app-id or app id URI).
- * Dev without audience: returns null (caller may fall back to demo session).
  */
 export async function validateEntraAccessToken(
   token: string

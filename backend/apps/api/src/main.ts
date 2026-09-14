@@ -3,7 +3,10 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { logger: ["error", "warn", "log"] });
+  const app = await NestFactory.create(AppModule, {
+    logger: ["error", "warn", "log"],
+    rawBody: true,
+  });
   const origins = (process.env.CORS_ORIGINS || "http://localhost:3000").split(",");
   app.enableCors({ origin: origins, credentials: true });
   app.setGlobalPrefix("v1", { exclude: ["health"] });

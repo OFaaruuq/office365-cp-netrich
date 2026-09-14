@@ -1,12 +1,13 @@
 import { Body, Controller, Get, Param, Patch, NotFoundException } from "@nestjs/common";
 import { OnboardingStepKey } from "@prisma/client";
 import { withTenantContext } from "../../../libs/prisma";
-import { CurrentTenant, RequirePartnerAdmin, type TenantContext } from "../../../libs/guards";
+import { CurrentTenant, RequirePartnerAdmin, RequirePermissions, type TenantContext } from "../../../libs/guards";
 import { summarizeOnboarding } from "./customers.controller";
 
 @RequirePartnerAdmin()
 @Controller("onboarding")
 export class OnboardingController {
+  @RequirePermissions("tenant.read")
   @Get(":customerId")
   async get(@CurrentTenant() tenant: TenantContext, @Param("customerId") customerId: string) {
     return withTenantContext(tenant, async (tx) => {
@@ -19,6 +20,7 @@ export class OnboardingController {
     });
   }
 
+  @RequirePermissions("tenant.create")
   @Patch(":customerId/steps/:stepKey")
   async completeStep(
     @CurrentTenant() tenant: TenantContext,

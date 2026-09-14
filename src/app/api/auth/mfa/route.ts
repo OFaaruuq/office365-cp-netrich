@@ -4,7 +4,6 @@ import {
 } from "@/lib/auth/server-session";
 import { writeAudit } from "@/lib/audit-log";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
-import { isDemoLoginAllowed } from "@/lib/auth/demo-mode";
 import {
   beginMfaEnrollment,
   confirmMfaEnrollment,
@@ -52,14 +51,18 @@ export async function POST(request: NextRequest) {
   const action = String(body.action || "verify") as "verify" | "enroll" | "refresh_setup";
 
   const challengeEarly = getMfaChallenge(challengeId);
-  const { loadPlatform } = await import("@/lib/platform-store");
-  const isBreakGlass = Boolean(
-    challengeEarly && loadPlatform().breakGlassEmails.includes(challengeEarly.email.toLowerCase())
-  );
-
-  if (!isDemoLoginAllowed() && !isBreakGlass) {
+  if (!challengeEarly) {
     return NextResponse.json(
-      { error: "Demo login disabled.", code: "DEMO_LOGIN_DISABLED" },
+      { error: "MFA challenge expired. Sign in again.", code: "MFA_EXPIRED" },
+      { status: 401 }
+    );
+  }
+
+  const { loadPlatform } = await import("@/lib/platform-store");
+  const isBreakGlass = loadPlatform().breakGlassEmails.includes(challengeEarly.email.toLowerCase());
+  if (!isBreakGlass) {
+    return NextResponse.json(
+      { error: "Password sign-in is limited to emergency access accounts.", code: "ENTRA_REQUIRED" },
       { status: 403 }
     );
   }
