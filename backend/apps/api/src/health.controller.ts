@@ -1,13 +1,30 @@
 import { Controller, Get } from "@nestjs/common";
 import { prisma } from "../../../libs/prisma";
 import { getSamConfigStatus } from "../../../libs/sam";
-import { Public } from "../../../libs/guards";
+import { Public, RequirePartnerAdmin, RequirePermissions } from "../../../libs/guards";
 
 @Controller()
 export class HealthController {
   @Public()
   @Get("health")
   async health() {
+    let postgres: "healthy" | "down" = "down";
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      postgres = "healthy";
+    } catch {
+      postgres = "down";
+    }
+    return {
+      ok: postgres === "healthy",
+      service: "netrich-csp-api",
+    };
+  }
+
+  @RequirePartnerAdmin()
+  @RequirePermissions("platform.admin")
+  @Get("health/details")
+  async details() {
     let postgres: "healthy" | "down" = "down";
     try {
       await prisma.$queryRaw`SELECT 1`;

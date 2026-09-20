@@ -58,6 +58,7 @@ Multi-tenant CSP-style portal where:
 | Document | Focus |
 |----------|--------|
 | [README.md](../README.md) | Quick start |
+| [DEPLOYMENT.md](./DEPLOYMENT.md) | Production deploy (native Windows/Linux, no Docker) |
 | [CSP_PRODUCTION_ARCHITECTURE.md](./CSP_PRODUCTION_ARCHITECTURE.md) | SAM, GDAP, NCE, maturity stages |
 | [MULTI_TENANT.md](./MULTI_TENANT.md) | Isolation & terminate lifecycle |
 | [BACKEND.md](./BACKEND.md) | NestJS / Postgres design |
@@ -100,7 +101,7 @@ Browser
 - Node.js 20+
 - npm
 - Microsoft Authenticator / Entra MFA (password + TOTP only for break-glass)
-- Docker Desktop for Nest/Postgres (optional for UI-only)
+- Native PostgreSQL 16 + Redis for Nest (required in production; see [DEPLOYMENT.md](./DEPLOYMENT.md))
 
 ### UI
 
@@ -339,7 +340,7 @@ src/components/  src/lib/     foundation-store, rbac-catalog, auth, stores
 backend/
   apps/api  apps/worker  libs/  prisma/  scripts/  docker-compose.yml
 .data/                        MVP JSON + foundation.json
-docs/                         DOCUMENTATION, CSP_PRODUCTION_ARCHITECTURE, BACKEND, MULTI_TENANT
+docs/                         DOCUMENTATION, DEPLOYMENT, CSP_PRODUCTION_ARCHITECTURE, BACKEND, MULTI_TENANT
 ```
 
 ---

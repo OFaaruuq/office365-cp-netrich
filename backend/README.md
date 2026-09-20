@@ -9,22 +9,25 @@ Phase 1 **Foundation** API for the Microsoft 365 Control Panel.
 | **PostgreSQL** | System of record + RLS helpers |
 | **Redis** | Job queues / cache |
 
-UI remains Next.js (`:3000`). The Next BFF at `/api/csp/*` prefers this API and falls back to `.data/foundation.json` if Nest/Postgres are down.
+The UI still runs on Next.js (`:3000`). The Next BFF at `/api/csp/*` proxies to this API. In **production** Nest+Postgres is required (`503 BACKEND_REQUIRED` if down). In development only, the BFF may fall back to `.data/foundation.json`.
 
 Full architecture: [docs/CSP_PRODUCTION_ARCHITECTURE.md](../docs/CSP_PRODUCTION_ARCHITECTURE.md) · [docs/BACKEND.md](../docs/BACKEND.md)
 
 ## Prerequisites
 
 - Node.js 20+
-- Docker Desktop (Postgres + Redis)
+- Native **PostgreSQL 16** and **Redis 7** (Memurai on Windows). Production does **not** use Docker.
 
-## Quick start
+## Production
+
+Native install (IIS/Nginx + NSSM/systemd, no containers): **[docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md)**. Copy [`.env.production.example`](./.env.production.example) to `.env`.
+
+## Quick start (development)
 
 ```bash
 cd backend
 cp .env.example .env
 npm install
-npm run docker:up
 npx prisma migrate deploy
 psql "$DATABASE_URL" -f prisma/rls-policies.sql   # optional; functions also in prisma/rls.sql
 npm run prisma:seed
@@ -44,7 +47,6 @@ npm run dev:worker
 
 | Command | Purpose |
 |---------|---------|
-| `npm run docker:up` / `docker:down` | Start/stop Postgres + Redis |
 | `npm run prisma:generate` | Generate Prisma client |
 | `npm run prisma:migrate` | Dev migrations |
 | `npm run prisma:deploy` | Apply migrations |

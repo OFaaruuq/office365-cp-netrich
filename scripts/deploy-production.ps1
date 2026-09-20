@@ -3,7 +3,7 @@
   Production deploy wrapper for netrichtechnologies Microsoft 365 Control Panel.
 
 .DESCRIPTION
-  Calls scripts/deploy-production.mjs. Prefer Docker on the production host.
+  Calls scripts/deploy-production.mjs. Native production (no Docker): see docs/DEPLOYMENT.md.
 
 .EXAMPLE
   .\scripts\deploy-production.ps1 -Check

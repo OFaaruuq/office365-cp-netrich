@@ -59,6 +59,27 @@ export const ROLE_PACKS = [
     ],
   },
   {
+    key: "partner_billing_admin",
+    name: "Partner Billing Admin",
+    scope: "partner" as const,
+    permissions: [
+      "tenant.read",
+      "subscription.read",
+      "quote.read",
+      "invoice.read",
+      "invoice.download",
+      "audit.read",
+      "support.read",
+      "support.respond",
+    ],
+  },
+  {
+    key: "partner_support_admin",
+    name: "Partner Support Admin",
+    scope: "partner" as const,
+    permissions: ["tenant.read", "user.read", "support.read", "support.respond"],
+  },
+  {
     key: "customer_global_admin",
     name: "Customer Global Admin",
     scope: "customer" as const,
@@ -83,3 +104,16 @@ export const LEGACY_ROLE_MAP: Record<string, string> = {
   support_billing: "partner_billing_admin",
   customer_admin: "customer_global_admin",
 };
+
+export function packKeyForRole(role: string): string {
+  return LEGACY_ROLE_MAP[role] || role;
+}
+
+export function permissionsForRole(role: string): string[] {
+  const packKey = packKeyForRole(role);
+  return ROLE_PACKS.find((p) => p.key === packKey)?.permissions.slice() || [];
+}
+
+export function roleHasPermission(role: string, permission: string): boolean {
+  return permissionsForRole(role).includes(permission);
+}

@@ -2,24 +2,20 @@ import type { ServerSession } from "@/lib/auth/server-session";
 
 /** NestJS CSP API base (Phase 1 Foundation) */
 export function cspApiBase(): string {
-  return (
-    process.env.CSP_API_URL ||
-    process.env.NEXT_PUBLIC_CSP_API_URL ||
-    "http://localhost:8080"
-  );
+  return process.env.CSP_API_URL || "http://localhost:8080";
 }
 
 export function cspInternalSecret(): string {
   const configured = process.env.CSP_INTERNAL_API_SECRET || "";
-  if (configured.length >= 16) return configured;
+  if (configured.length >= 16 && configured !== "netrich-csp-dev-internal-secret") return configured;
   if (process.env.NODE_ENV === "production") return "";
   return "netrich-csp-dev-internal-secret";
 }
 
 /** Headers Next attaches after authenticating the portal session. Never taken from the browser. */
 export function cspInternalHeaders(
-  session?: Pick<ServerSession, "role" | "accountId" | "customerId">,
-  customerId?: string,
+  _session?: Pick<ServerSession, "role" | "accountId" | "customerId">,
+  _customerId?: string,
   sessionToken?: string
 ): Record<string, string> {
   const headers: Record<string, string> = {
@@ -28,11 +24,6 @@ export function cspInternalHeaders(
   };
   if (sessionToken) {
     headers["x-portal-session"] = sessionToken;
-  }
-  if (session) {
-    headers["x-portal-role"] = session.role || "";
-    headers["x-user-id"] = session.accountId || "";
-    headers["x-customer-id"] = customerId || session.customerId || "";
   }
   return headers;
 }

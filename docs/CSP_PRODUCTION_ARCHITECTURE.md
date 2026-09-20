@@ -220,4 +220,4 @@ Break-glass accounts separate from daily Super Admins.
 
 ---
 
-*Phase 1 Foundation is implemented under `backend/` and the Partner/Customer navigation in Next.js. Live Partner Center writes are Phase 3. Runbooks: [../backend/README.md](../backend/README.md) · [../README.md](../README.md).*
+*Phase 1 Foundation is implemented under `backend/` and the Partner/Customer navigation in Next.js. Live Partner Center writes are Phase 3. Production install is native (no Docker): [DEPLOYMENT.md](./DEPLOYMENT.md). Runbooks: [../backend/README.md](../backend/README.md) · [../README.md](../README.md).*

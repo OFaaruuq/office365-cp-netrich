@@ -3,6 +3,7 @@ import {
   activeInspect,
   clearSessionCookie,
   readSessionFromRequest,
+  sessionHasPermission,
   type ServerSession,
 } from "@/lib/auth/server-session";
 import { findCustomer } from "@/lib/customer-store";
@@ -67,7 +68,7 @@ export function assertClientPortalActive(
       },
       { status: 403 }
     );
-    clearSessionCookie(res);
+    clearSessionCookie(res, session.sid);
     return res;
   }
   return null;
@@ -99,6 +100,22 @@ export async function requireRoles(
         `Role ${auth.session.role} cannot access this resource.`,
         "ROLE_DENIED"
       ),
+    };
+  }
+  return auth;
+}
+
+export async function requirePermissions(
+  request: NextRequest,
+  permissions: string[],
+  opts?: { skipPortalCheck?: boolean }
+): Promise<{ session: ServerSession } | { error: NextResponse }> {
+  const auth = await requireSession(request, opts);
+  if ("error" in auth) return auth;
+  const ok = permissions.every((p) => sessionHasPermission(auth.session, p));
+  if (!ok) {
+    return {
+      error: forbidden("Missing required permission.", "RBAC_DENIED"),
     };
   }
   return auth;

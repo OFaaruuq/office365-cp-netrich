@@ -49,8 +49,8 @@ export function getSamConfigStatus(): {
       },
       {
         component: "microsoft_graph",
-        status: graphId || process.env.GRAPH_ACCESS_TOKEN ? "degraded" : "not_configured",
-        detail: graphId || process.env.GRAPH_ACCESS_TOKEN ? "App-only token path available" : "Set GRAPH_CLIENT_ID / SECRET",
+        status: graphId ? "degraded" : "not_configured",
+        detail: graphId ? "App-only token path available" : "Set GRAPH_CLIENT_ID / SECRET",
       },
       {
         component: "secure_application_model",
@@ -61,12 +61,66 @@ export function getSamConfigStatus(): {
   };
 }
 
-export async function storeEncryptedRefreshToken(_params: {
+export async function storeEncryptedRefreshToken(params: {
   partnerUserId: string;
   ciphertext: string;
-}): Promise<{ ok: true; storage: "key_vault" | "key_vault_unconfigured" }> {
-  const vault = process.env.AZURE_KEY_VAULT_URI || "";
+}): Promise<
+  | { ok: true; storage: "key_vault" | "key_vault_unconfigured" }
+  | { ok: false; code: string; message: string }
+> {
+  const vault = (process.env.AZURE_KEY_VAULT_URI || "").replace(/\/$/, "");
   if (!vault) return { ok: true, storage: "key_vault_unconfigured" };
+
+  const clientId = process.env.AZURE_CLIENT_ID || process.env.GRAPH_CLIENT_ID || process.env.AZURE_AD_API_CLIENT_ID || "";
+  const clientSecret =
+    process.env.AZURE_CLIENT_SECRET || process.env.GRAPH_CLIENT_SECRET || process.env.AZURE_AD_API_CLIENT_SECRET || "";
+  const tenant = process.env.AZURE_TENANT_ID || process.env.AZURE_AD_TENANT_ID || "";
+  if (!clientId || !clientSecret || !tenant) {
+    return {
+      ok: false,
+      code: "KEY_VAULT_AUTH_MISSING",
+      message: "AZURE_KEY_VAULT_URI is set but client credentials for Key Vault are missing.",
+    };
+  }
+
+  const tokenRes = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "client_credentials",
+      scope: "https://vault.azure.net/.default",
+    }),
+  });
+  if (!tokenRes.ok) {
+    return {
+      ok: false,
+      code: "KEY_VAULT_TOKEN_FAILED",
+      message: (await tokenRes.text()).slice(0, 400),
+    };
+  }
+  const tokenJson = (await tokenRes.json()) as { access_token?: string };
+  if (!tokenJson.access_token) {
+    return { ok: false, code: "KEY_VAULT_TOKEN_FAILED", message: "Token response missing access_token" };
+  }
+
+  const secretName = `sam-refresh-${params.partnerUserId}`.replace(/[^A-Za-z0-9-]/g, "-");
+  const put = await fetch(`${vault}/secrets/${encodeURIComponent(secretName)}?api-version=7.4`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${tokenJson.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ value: params.ciphertext }),
+  });
+  if (!put.ok) {
+    return {
+      ok: false,
+      code: "KEY_VAULT_WRITE_FAILED",
+      message: (await put.text()).slice(0, 400),
+    };
+  }
   return { ok: true, storage: "key_vault" };
 }
 

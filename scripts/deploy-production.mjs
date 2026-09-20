@@ -98,7 +98,7 @@ function applyEnv(env) {
 
 function printHelp() {
   console.log(`
-netrichtechnologies — production deploy
+netrichtechnologies — production deploy (native host — no containers)
 
 Usage:
   node scripts/deploy-production.mjs [flags]
@@ -108,19 +108,21 @@ Flags:
   --generate-secret    Print a strong PORTAL_SESSION_SECRET and exit
   --build              npm ci + production build
   --start              Start Next.js with next start (after build)
-  --docker             Build & run via docker-compose.prod.yml
-  --with-backend       Include Nest API + Postgres + Redis (docker profile)
-  --full               --check --build --start
-  --full-docker        --check --docker
   --skip-install       Skip npm ci during --build
+  --full               --check --build --start
   --help               Show this help
 
-First-time:
-  1. cp .env.production.example .env.production
-  2. Set PORTAL_SESSION_SECRET (≥32 chars) and Entra client ID
-  3. node scripts/deploy-production.mjs --check
-  4. node scripts/deploy-production.mjs --docker
-     OR node scripts/deploy-production.mjs --full
+Production (recommended):
+  1. copy .env.production.example .env.production
+  2. copy backend/.env.production.example backend/.env
+  3. npm run deploy:secret   (paste session + internal secrets into BOTH files)
+  4. npm run deploy:check
+  5. npm run deploy:build
+  6. Register OS services — see docs/DEPLOYMENT.md
+     Windows: scripts/windows/start-*.cmd + NSSM
+     Linux:   scripts/linux/nt-office365-*.service
+
+Do not use Docker or any container runtime for this product.
 
 Production URL: https://${PROD_DOMAIN}
 `);
@@ -156,8 +158,23 @@ function validateProductionEnv(env) {
     warnings.push(`NEXT_PUBLIC_APP_URL does not match ${PROD_DOMAIN}`);
   }
 
-  if (!env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID) {
-    errors.push("NEXT_PUBLIC_AZURE_AD_CLIENT_ID is required for Microsoft Entra production sign-in");
+  if (!env.CSP_INTERNAL_API_SECRET || env.CSP_INTERNAL_API_SECRET.length < 16) {
+    errors.push("CSP_INTERNAL_API_SECRET must be set and ≥16 characters");
+  }
+  if (env.CSP_INTERNAL_API_SECRET === "netrich-csp-dev-internal-secret") {
+    errors.push("CSP_INTERNAL_API_SECRET is still the insecure default");
+  }
+  if (!env.CSP_API_URL) {
+    errors.push("CSP_API_URL is required in production (JSON .data fallback is disabled)");
+  }
+  if (env.NEXT_PUBLIC_CSP_API_URL) {
+    errors.push("NEXT_PUBLIC_CSP_API_URL must not be set — Nest must stay off the public browser bundle");
+  }
+  if (env.GRAPH_ACCESS_TOKEN) {
+    errors.push("GRAPH_ACCESS_TOKEN is not allowed in production — use per-customer Graph app credentials");
+  }
+  if (env.PORTAL_BOOTSTRAP_ADMIN_EMAIL === "admin@netrichtechnologies.com") {
+    errors.push("PORTAL_BOOTSTRAP_ADMIN_EMAIL must not use the published default mailbox");
   }
 
   if (env.ALLOW_DEMO_LOGIN === "true") {

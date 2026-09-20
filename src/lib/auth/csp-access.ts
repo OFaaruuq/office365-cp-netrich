@@ -7,6 +7,7 @@ import {
   resolveTenantScope,
 } from "@/lib/auth/guards";
 import type { ServerSession } from "@/lib/auth/server-session";
+import { sessionHasPermission } from "@/lib/auth/server-session";
 
 export type CspAccess = {
   session: ServerSession;
@@ -34,6 +35,33 @@ const PARTNER_PREFIXES = [
   "admin-access",
   "onboarding",
 ] as const;
+
+const PARTNER_PREFIX_PERMISSION: Record<(typeof PARTNER_PREFIXES)[number], string> = {
+  gdap: "gdap.read",
+  flags: "platform.admin",
+  approvals: "platform.admin",
+  jobs: "platform.admin",
+  reporting: "platform.admin",
+  "price-lists": "invoice.read",
+  quotes: "quote.read",
+  invoices: "invoice.read",
+  orders: "subscription.read",
+  subscriptions: "subscription.read",
+  "graph-sync": "user.read",
+  microsoft: "platform.admin",
+  "break-glass": "platform.admin",
+  catalog: "platform.admin",
+  "admin-access": "admin.impersonate",
+  onboarding: "tenant.read",
+};
+
+function partnerPermissionFor(joined: string): string | null {
+  const prefix = PARTNER_PREFIXES.find((p) => matchesPrefix(joined, p));
+  if (prefix) return PARTNER_PREFIX_PERMISSION[prefix];
+  if (joined === "customers" || joined === "health" || joined === "platform/health") return "tenant.read";
+  if (joined === "rbac/roles" || joined === "rbac/permissions") return "platform.admin";
+  return "platform.admin";
+}
 
 function matchesPrefix(joined: string, prefix: string) {
   return joined === prefix || joined.startsWith(prefix + "/");
@@ -76,6 +104,10 @@ export async function authorizeCspPath(
   if (isCspPartnerOnly(joined)) {
     const auth = await requirePartnerAdmin(request);
     if ("error" in auth) return auth;
+    const needed = partnerPermissionFor(joined);
+    if (needed && !sessionHasPermission(auth.session, needed)) {
+      return { error: forbidden("Missing required permission.", "RBAC_DENIED") };
+    }
     return { session: auth.session };
   }
 

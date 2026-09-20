@@ -73,6 +73,12 @@ CREATE POLICY tenant_isolation ON domains
     OR microsoft_tenant_id IN (
       SELECT id FROM microsoft_tenants WHERE app_customer_matches(customer_id)
     )
+  )
+  WITH CHECK (
+    app_is_partner_admin()
+    OR microsoft_tenant_id IN (
+      SELECT id FROM microsoft_tenants WHERE app_customer_matches(customer_id)
+    )
   );
 
 CREATE POLICY tenant_isolation ON customer_contacts
@@ -90,6 +96,10 @@ CREATE POLICY tenant_isolation ON gdap_roles
   USING (
     app_is_partner_admin()
     OR relationship_id IN (SELECT id FROM gdap_relationships WHERE app_customer_matches(customer_id))
+  )
+  WITH CHECK (
+    app_is_partner_admin()
+    OR relationship_id IN (SELECT id FROM gdap_relationships WHERE app_customer_matches(customer_id))
   );
 
 CREATE POLICY tenant_isolation ON gdap_assignments
@@ -97,11 +107,19 @@ CREATE POLICY tenant_isolation ON gdap_assignments
   USING (
     app_is_partner_admin()
     OR relationship_id IN (SELECT id FROM gdap_relationships WHERE app_customer_matches(customer_id))
+  )
+  WITH CHECK (
+    app_is_partner_admin()
+    OR relationship_id IN (SELECT id FROM gdap_relationships WHERE app_customer_matches(customer_id))
   );
 
 CREATE POLICY tenant_isolation ON gdap_events
   FOR ALL
   USING (
+    app_is_partner_admin()
+    OR relationship_id IN (SELECT id FROM gdap_relationships WHERE app_customer_matches(customer_id))
+  )
+  WITH CHECK (
     app_is_partner_admin()
     OR relationship_id IN (SELECT id FROM gdap_relationships WHERE app_customer_matches(customer_id))
   );
@@ -119,6 +137,11 @@ CREATE POLICY tenant_isolation ON graph_sync_states
 CREATE POLICY tenant_isolation ON notifications
   FOR ALL
   USING (
+    app_is_partner_admin()
+    OR (customer_id IS NOT NULL AND app_customer_matches(customer_id))
+    OR (user_id IS NOT NULL AND user_id::text = app_current_user_id())
+  )
+  WITH CHECK (
     app_is_partner_admin()
     OR (customer_id IS NOT NULL AND app_customer_matches(customer_id))
     OR (user_id IS NOT NULL AND user_id::text = app_current_user_id())
@@ -165,6 +188,10 @@ CREATE POLICY tenant_isolation ON feature_flags
 CREATE POLICY tenant_isolation ON jobs
   FOR ALL
   USING (
+    app_is_partner_admin()
+    OR (customer_id IS NOT NULL AND app_customer_matches(customer_id))
+  )
+  WITH CHECK (
     app_is_partner_admin()
     OR (customer_id IS NOT NULL AND app_customer_matches(customer_id))
   );

@@ -12,12 +12,11 @@ function signaturesMatch(provided: string, expectedHex: string) {
 /** Public signed webhook ingress. Microsoft Graph subscription validation is GET ?validationToken=. */
 export async function GET(
   request: NextRequest,
-  ctx: { params: Promise<{ provider: string }> }
+  _ctx: { params: Promise<{ provider: string }> }
 ) {
   const token = request.nextUrl.searchParams.get("validationToken");
   if (token) return new NextResponse(token, { status: 200 });
-  const { provider } = await ctx.params;
-  return NextResponse.json({ ok: true, provider });
+  return new NextResponse(null, { status: 404 });
 }
 
 export async function POST(
@@ -42,10 +41,11 @@ export async function POST(
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+  const hmacOk = signaturesMatch(provided, digest);
   const clientStateOk =
     Boolean(process.env.WEBHOOK_CLIENT_STATE) &&
     String(body.clientState || "") === process.env.WEBHOOK_CLIENT_STATE;
-  if (!clientStateOk && !signaturesMatch(provided, digest)) {
+  if (!hmacOk || (process.env.WEBHOOK_CLIENT_STATE && !clientStateOk)) {
     return NextResponse.json({ error: "Invalid signature", code: "WEBHOOK_SIGNATURE_INVALID" }, { status: 401 });
   }
 

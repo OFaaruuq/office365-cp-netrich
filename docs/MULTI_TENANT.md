@@ -69,6 +69,6 @@ Set **`PORTAL_SESSION_SECRET`** (≥32 chars) in production. Everyday sign-in is
 2. **Users & MFA** → password / MFA reset  
 3. Tenant detail → **View as customer** (reason required)  
 4. **Disable** or **Terminate** a tenant (soft TERMINATING; portal locked)  
-5. With Docker: `cd backend && npm run docker:up && npx prisma migrate deploy && npm run prisma:seed && npm run migrate:from-data && npm run dev:api`
+5. With native Postgres/Redis: `cd backend && npx prisma migrate deploy && npm run prisma:seed && npm run migrate:from-data && npm run dev:api`
 
 See [DOCUMENTATION.md](./DOCUMENTATION.md), [CSP_PRODUCTION_ARCHITECTURE.md](./CSP_PRODUCTION_ARCHITECTURE.md), and [backend/README.md](../backend/README.md).

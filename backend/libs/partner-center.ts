@@ -36,7 +36,16 @@ export function partnerCenterWritesEnabled() {
 
 export async function partnerCenterGet<T>(accessToken: string, path: string): Promise<T> {
   const url = path.startsWith("http") ? path : `https://api.partnercenter.microsoft.com${path}`;
-  const res = await fetch(url, {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Invalid Partner Center URL");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "api.partnercenter.microsoft.com") {
+    throw new Error(`Refusing Partner Center request to ${parsed.hostname}`);
+  }
+  const res = await fetch(parsed.toString(), {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
   });
   if (!res.ok) {

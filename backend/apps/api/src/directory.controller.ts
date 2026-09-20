@@ -55,9 +55,20 @@ export class DirectoryController {
       if (!customer) throw new NotFoundException({ code: "NOT_FOUND" });
       assertCustomerAccess(tenant, customer);
       const entra =
-        body.entraTenantId ||
         customer.microsoftTenants.find((t) => t.isPrimary)?.entraTenantId ||
         customer.microsoftTenants[0]?.entraTenantId;
+      if (body.entraTenantId && body.entraTenantId !== entra) {
+        throw new ConflictException({
+          code: "TENANT_ISOLATION",
+          message: "entraTenantId does not match this customer's Microsoft tenant.",
+        });
+      }
+      if (!entra) {
+        throw new ConflictException({
+          code: "GRAPH_NOT_CONFIGURED",
+          message: "This customer has no Microsoft tenant id; Graph sync refused.",
+        });
+      }
       const token = await acquireGraphToken(entra);
       if (!token.ok) {
         throw new ConflictException({ code: token.code, message: token.message });

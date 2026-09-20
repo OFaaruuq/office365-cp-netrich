@@ -1,4 +1,4 @@
-/** Rate limiter. Per-process; set TRUST_PROXY=true behind a reverse proxy. */
+/** Rate limiter. Per-process; set TRUST_PROXY=true behind a reverse proxy that overwrites X-Real-IP. */
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
 export function rateLimit(
@@ -21,9 +21,7 @@ export function rateLimit(
 
 export function clientIp(request: Request): string {
   if (process.env.TRUST_PROXY === "true") {
-    const xf = request.headers.get("x-forwarded-for");
-    if (xf) return xf.split(",")[0]?.trim() || "unknown";
-    return request.headers.get("x-real-ip") || "unknown";
+    return request.headers.get("x-real-ip") || request.headers.get("cf-connecting-ip") || "unknown";
   }
-  return request.headers.get("x-real-ip") || "direct";
+  return "direct";
 }

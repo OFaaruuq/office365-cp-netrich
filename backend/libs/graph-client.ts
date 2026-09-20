@@ -2,8 +2,24 @@ export type GraphTokenResult =
   | { ok: true; accessToken: string; source: "client_credentials" | "access_token_env" }
   | { ok: false; code: string; message: string };
 
+const GRAPH_HOSTS = new Set(["graph.microsoft.com"]);
+
+export function assertGraphUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Invalid Graph URL");
+  }
+  if (parsed.protocol !== "https:" || !GRAPH_HOSTS.has(parsed.hostname)) {
+    throw new Error(`Refusing Graph request to ${parsed.hostname}`);
+  }
+  return parsed.toString();
+}
+
 export async function acquireGraphToken(entraTenantId?: string): Promise<GraphTokenResult> {
-  if (process.env.GRAPH_ACCESS_TOKEN) {
+  const production = process.env.NODE_ENV === "production";
+  if (process.env.GRAPH_ACCESS_TOKEN && !entraTenantId && !production) {
     return { ok: true, accessToken: process.env.GRAPH_ACCESS_TOKEN, source: "access_token_env" };
   }
   const clientId = process.env.GRAPH_CLIENT_ID || process.env.AZURE_AD_API_CLIENT_ID || "";
@@ -23,7 +39,7 @@ export async function acquireGraphToken(entraTenantId?: string): Promise<GraphTo
     grant_type: "client_credentials",
     scope: "https://graph.microsoft.com/.default",
   });
-  const res = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
+  const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -40,7 +56,7 @@ export async function acquireGraphToken(entraTenantId?: string): Promise<GraphTo
 }
 
 export async function graphGet<T>(accessToken: string, url: string): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(assertGraphUrl(url), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -95,7 +111,7 @@ export async function syncDirectoryUsers(
         lastSyncedAt: now,
       });
     }
-    next = page["@odata.nextLink"];
+    next = page["@odata.nextLink"] ? assertGraphUrl(page["@odata.nextLink"]) : undefined;
   }
   return users;
 }
@@ -119,7 +135,7 @@ export async function syncDirectoryGroups(accessToken: string) {
         source: "graph",
       });
     }
-    next = page["@odata.nextLink"];
+    next = page["@odata.nextLink"] ? assertGraphUrl(page["@odata.nextLink"]) : undefined;
   }
   return groups;
 }

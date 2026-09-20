@@ -1,0 +1,18 @@
+[Unit]
+Description=netrichtechnologies CSP API
+After=network.target postgresql.service redis-server.service
+Requires=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=netrich
+WorkingDirectory=/opt/netrich/office365/backend
+EnvironmentFile=/opt/netrich/office365/backend/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npx tsx apps/api/src/main.ts
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -19,6 +19,7 @@ import {
 } from "@/lib/auth/password-store";
 import { writeAudit } from "@/lib/audit-log";
 import type { PortalRole } from "@/lib/tenancy-types";
+import { revokeSessionsForAccount } from "@/lib/auth/session-registry";
 
 function withExtras(accountId: string) {
   return {
@@ -196,6 +197,7 @@ export async function PATCH(request: NextRequest) {
     }
     resetMfa(accountId);
     clearAccountPassword(accountId);
+    revokeSessionsForAccount(accountId);
     writeAudit({
       action: "users.delete",
       actorAccountId: auth.session.accountId,
@@ -215,6 +217,7 @@ export async function PATCH(request: NextRequest) {
 
   if (action === "reset_mfa") {
     resetMfa(accountId);
+    revokeSessionsForAccount(accountId);
     writeAudit({
       action: "auth.mfa_reset",
       actorAccountId: auth.session.accountId,
@@ -238,6 +241,7 @@ export async function PATCH(request: NextRequest) {
       auth.session.email
     );
     if ("error" in pwd) return NextResponse.json(pwd, { status: 400 });
+    revokeSessionsForAccount(accountId);
     writeAudit({
       action: "users.password_change",
       actorAccountId: auth.session.accountId,
@@ -289,6 +293,7 @@ export async function PATCH(request: NextRequest) {
     if ("error" in result) {
       return NextResponse.json(result, { status: 400 });
     }
+    if (action === "disable") revokeSessionsForAccount(accountId);
     writeAudit({
       action: "users.update",
       actorAccountId: auth.session.accountId,

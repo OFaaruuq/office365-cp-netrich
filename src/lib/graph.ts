@@ -5,7 +5,16 @@ export async function callGraph<T>(
   accessToken: string,
   endpoint: string
 ): Promise<T> {
-  const response = await fetch(endpoint, {
+  let parsed: URL;
+  try {
+    parsed = new URL(endpoint);
+  } catch {
+    throw new Error("Invalid Graph URL");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "graph.microsoft.com") {
+    throw new Error(`Refusing Graph request to ${parsed.hostname}`);
+  }
+  const response = await fetch(parsed.toString(), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",

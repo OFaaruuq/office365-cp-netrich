@@ -26,18 +26,12 @@ export const msalConfig: Configuration = {
         : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
   },
   cache: {
-    cacheLocation: "localStorage",
+    cacheLocation: "sessionStorage",
   },
 };
 
 export const loginRequest: PopupRequest = {
-  scopes: [
-    "User.Read",
-    "User.Read.All",
-    "Directory.Read.All",
-    "Organization.Read.All",
-    "Directory.AccessAsUser.All",
-  ],
+  scopes: ["openid", "profile", "email", "User.Read"],
 };
 
 export const graphConfig = {

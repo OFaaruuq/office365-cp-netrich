@@ -23,6 +23,11 @@ export class AuditController {
       if (!target) {
         throw new ForbiddenException({ code: "TENANT_ISOLATION" });
       }
+    } else if (!target && !tenant.permissions.includes("platform.admin")) {
+      throw new ForbiddenException({
+        code: "CUSTOMER_REQUIRED",
+        message: "Specify customerId to read tenant audit events.",
+      });
     }
     return withTenantContext(tenant, async (tx) => {
       const events = await tx.auditEvent.findMany({

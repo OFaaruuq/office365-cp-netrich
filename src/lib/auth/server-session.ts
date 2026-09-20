@@ -2,6 +2,14 @@ import type { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import type { PortalRole, SessionUser, SupportTeam } from "@/lib/tenancy-types";
 import { requireHardenedSessionSecret } from "@/lib/auth/demo-mode";
+import { DEV_SESSION_SECRET, isProductionRuntime } from "@/lib/auth/runtime";
+import { packKeyForRole, permissionsForRole } from "@/lib/rbac-catalog";
+import {
+  issueSessionId,
+  isSessionActive,
+  registerSession,
+  revokeSession,
+} from "@/lib/auth/session-registry";
 
 export const SESSION_COOKIE =
   process.env.NODE_ENV === "production" ? "__Host-nt_portal_session" : "nt_portal_session";
@@ -11,12 +19,16 @@ const MAX_AGE_SEC = 60 * 60 * 12; // 12 hours
 const CLIENT_MAX_AGE_SEC = 60 * 30; // 30 minutes for customer_admin
 
 function secret(): string {
-  const configured = process.env.PORTAL_SESSION_SECRET || process.env.SESSION_SECRET;
-  if (configured && configured.length >= 32) return configured;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("PORTAL_SESSION_SECRET is required in production (≥32 chars)");
+  const configured = process.env.PORTAL_SESSION_SECRET || process.env.SESSION_SECRET || "";
+  const isDefault = !configured || configured === DEV_SESSION_SECRET;
+  if (isProductionRuntime()) {
+    if (isDefault || configured.length < 32) {
+      throw new Error("PORTAL_SESSION_SECRET is required in production (≥32 chars, not the published default)");
+    }
+    return configured;
   }
-  return "netrich-office365-dev-session-secret-change-me";
+  if (!isDefault && configured.length >= 32) return configured;
+  return DEV_SESSION_SECRET;
 }
 
 export type InspectClaim = {
@@ -39,6 +51,9 @@ export type ServerSession = {
   iat: number;
   exp: number;
   inspect?: InspectClaim;
+  sid?: string;
+  permissions?: string[];
+  rolePack?: string;
 };
 
 function b64urlFromBytes(bytes: ArrayBuffer | Uint8Array): string {
@@ -98,11 +113,16 @@ export async function encodeSessionToken(
   requireHardenedSessionSecret();
   const now = Math.floor(Date.now() / 1000);
   const ttl = session.role === "customer_admin" ? CLIENT_MAX_AGE_SEC : MAX_AGE_SEC;
+  const sid = session.sid || issueSessionId();
   const full: ServerSession = {
     ...session,
+    sid,
+    permissions: session.permissions || permissionsForRole(session.role),
+    rolePack: session.rolePack || packKeyForRole(session.role),
     iat: now,
     exp: now + ttl,
   };
+  registerSession(sid, full.accountId, full.exp);
   const payloadB64 = b64urlFromString(JSON.stringify(full));
   const sig = await hmacSign(payloadB64);
   return `${payloadB64}.${sig}`;
@@ -122,6 +142,7 @@ export async function decodeSessionToken(
     const session = JSON.parse(json) as ServerSession;
     if (!session.exp || session.exp < Math.floor(Date.now() / 1000)) return null;
     if (!session.accountId || !session.role || !session.email) return null;
+    if (!isSessionActive(session.sid)) return null;
     if (session.inspect && session.inspect.exp < Math.floor(Date.now() / 1000)) {
       delete session.inspect;
     }
@@ -160,7 +181,8 @@ export async function applySessionCookie(
   return res;
 }
 
-export function clearSessionCookie(res: NextResponse) {
+export function clearSessionCookie(res: NextResponse, sid?: string | null) {
+  revokeSession(sid);
   res.cookies.set(SESSION_COOKIE, "", { ...sessionCookieOptions(0), maxAge: 0 });
   if (SESSION_COOKIE !== LEGACY_SESSION_COOKIE) {
     res.cookies.set(LEGACY_SESSION_COOKIE, "", { ...sessionCookieOptions(0), maxAge: 0 });
@@ -181,6 +203,30 @@ export async function readSessionFromCookies(): Promise<ServerSession | null> {
   return decodeSessionToken(cookieValue((name) => jar.get(name)?.value));
 }
 
+export function cookieFields(
+  s: ServerSession
+): Omit<ServerSession, "iat" | "exp"> {
+  return {
+    accountId: s.accountId,
+    name: s.name,
+    email: s.email,
+    role: s.role,
+    customerId: s.customerId,
+    customerName: s.customerName,
+    team: s.team,
+    title: s.title,
+    inspect: activeInspect(s) || undefined,
+    sid: s.sid,
+    permissions: s.permissions,
+    rolePack: s.rolePack,
+  };
+}
+
+export function sessionHasPermission(session: ServerSession, permission: string): boolean {
+  const perms = session.permissions || permissionsForRole(session.role);
+  return perms.includes(permission);
+}
+
 export function activeInspect(s: ServerSession): InspectClaim | null {
   if (!s.inspect || s.inspect.exp < Math.floor(Date.now() / 1000)) return null;
   return s.inspect;
@@ -197,6 +243,8 @@ export function toClientSession(s: ServerSession): SessionUser {
     customerName: s.customerName,
     team: s.team,
     title: s.title,
+    rolePack: s.rolePack || packKeyForRole(s.role),
+    permissions: s.permissions || permissionsForRole(s.role),
     inspect: inspect
       ? {
           customerId: inspect.customerId,

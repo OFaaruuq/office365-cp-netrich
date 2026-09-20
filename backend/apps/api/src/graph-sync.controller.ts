@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from "@nestjs/common";
+import { Body, Controller, Get, Post, BadRequestException } from "@nestjs/common";
 import { withTenantContext } from "../../../libs/prisma";
 import {
   CurrentTenant,
@@ -40,8 +40,12 @@ export class GraphSyncController {
     @CurrentTenant() tenant: TenantContext,
     @Body() body: { customerId?: string; name?: string }
   ) {
+    const name = body.name || "users.delta_sync";
+    if ((name === "users.delta_sync" || name === "users.sync") && !body.customerId) {
+      throw new BadRequestException({ code: "CUSTOMER_REQUIRED" });
+    }
     const result = await enqueueJob({
-      name: body.name || "users.delta_sync",
+      name,
       queue: "microsoft-sync",
       customerId: body.customerId,
       role: tenant.role,

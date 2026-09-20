@@ -35,8 +35,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
               credentials: "include",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                accessToken: redirect.accessToken,
                 idToken: redirect.idToken,
+                accessToken: redirect.accessToken,
               }),
             });
             if (!minted.ok) {

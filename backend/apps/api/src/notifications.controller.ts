@@ -10,7 +10,7 @@ export class NotificationsController {
       const where = isPartnerRole(tenant.role)
         ? customerId
           ? { customerId }
-          : {}
+          : { userId: tenant.userId }
         : { OR: [{ customerId: tenant.customerId || undefined }, { userId: tenant.userId }] };
       const notifications = await tx.notification.findMany({
         where,

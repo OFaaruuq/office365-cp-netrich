@@ -76,13 +76,20 @@ export class AuthController {
     ).toLowerCase();
 
     return withTenantContext({ role: "partner_admin" }, async (tx) => {
-      const found = await tx.portalUser.findFirst({
-        where: {
-          OR: [{ entraOid: claims.oid }, ...(email ? [{ email }] : [])],
-          deleted: false,
-        },
+      let found = await tx.portalUser.findFirst({
+        where: { entraOid: claims.oid, deleted: false },
         include: { userRoles: { include: { role: true } } },
       });
+
+      if (!found && email) {
+        const byEmail = await tx.portalUser.findFirst({
+          where: { email, deleted: false },
+          include: { userRoles: { include: { role: true } } },
+        });
+        if (byEmail && !byEmail.entraOid) {
+          found = byEmail;
+        }
+      }
 
       if (!found) {
         throw new UnauthorizedException({

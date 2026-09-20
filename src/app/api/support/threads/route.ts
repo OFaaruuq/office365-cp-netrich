@@ -9,6 +9,7 @@ import {
   addMessage,
   unreadForAgent,
   unreadForClient,
+  threadQueueCard,
 } from "@/lib/support-store";
 import type { SupportTeam } from "@/lib/tenancy-types";
 import {
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
       clientUserId: session.accountId,
     });
     return NextResponse.json({
-      threads,
+      threads: threads.map(threadQueueCard),
       scope: { customerId: session.customerId, clientUserId: session.accountId },
     });
   }
@@ -80,7 +81,7 @@ export async function GET(request: NextRequest) {
       team: session.team,
       status: status as "queued" | "active" | "resolved" | undefined,
     });
-    return NextResponse.json({ threads, scope: { team: session.team } });
+    return NextResponse.json({ threads: threads.map(threadQueueCard), scope: { team: session.team } });
   }
 
   if (session.role === "partner_admin") {
@@ -101,7 +102,7 @@ export async function GET(request: NextRequest) {
       status: status as "queued" | "active" | "resolved" | undefined,
       allowUnscoped: !customerId && !team,
     });
-    return NextResponse.json({ threads, scope: { partner: true } });
+    return NextResponse.json({ threads: threads.map(threadQueueCard), scope: { partner: true } });
   }
 
   return forbidden("No support access for this role.");

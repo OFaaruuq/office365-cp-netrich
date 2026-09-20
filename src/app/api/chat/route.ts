@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth/guards";
+import { requireSession, forbidden } from "@/lib/auth/guards";
 import { findCustomer } from "@/lib/customer-store";
 import { addMessage, createThread, listThreads } from "@/lib/support-store";
 import type { SupportTeam } from "@/lib/tenancy-types";
@@ -15,6 +15,13 @@ function teamFromMessage(message: string): SupportTeam {
 export async function POST(request: NextRequest) {
   const auth = await requireSession(request);
   if ("error" in auth) return auth.error;
+
+  if (auth.session.role === "support_technical" || auth.session.role === "support_billing") {
+    return forbidden(
+      "Support agents cannot open tenant workspaces from chat intake. Use the support inbox.",
+      "SUPPORT_NO_TENANT_WORKSPACE"
+    );
+  }
 
   if (auth.session.role === "customer_admin" && !auth.session.customerId) {
     return NextResponse.json(
@@ -38,12 +45,15 @@ export async function POST(request: NextRequest) {
   const customerId =
     auth.session.role === "customer_admin"
       ? auth.session.customerId
-      : body.customerId || auth.session.customerId;
+      : String(body.customerId || "").trim();
   if (!customerId) {
     return NextResponse.json(
       { error: "customerId required so the message stays in one tenant queue", code: "CUSTOMER_REQUIRED" },
       { status: 400 }
     );
+  }
+  if (!findCustomer(customerId)) {
+    return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
   }
 
   const customer = findCustomer(customerId);

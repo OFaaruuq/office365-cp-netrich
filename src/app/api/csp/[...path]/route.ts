@@ -26,7 +26,8 @@ import {
 import { cspApiBase, cspInternalHeaders } from "@/lib/csp-api";
 import { PERMISSIONS, ROLE_PACKS, LEGACY_ROLE_MAP } from "@/lib/rbac-catalog";
 import type { ServerSession } from "@/lib/auth/server-session";
-import { SESSION_COOKIE, LEGACY_SESSION_COOKIE } from "@/lib/auth/server-session";
+import { SESSION_COOKIE, LEGACY_SESSION_COOKIE, cookieFields, sessionHasPermission } from "@/lib/auth/server-session";
+import { localSorForbidden, backendRequiredResponse } from "@/lib/auth/runtime";
 import { listDirectoryGroups, listDirectoryUsers } from "@/lib/directory-store";
 import { executeLocalApproval } from "@/lib/approval-execute";
 import { listTenantSubscriptions } from "@/lib/subscription-store";
@@ -105,7 +106,11 @@ export async function GET(
     nestSearch.set("customerId", scopedCustomerId);
   }
   const nestQuery = nestSearch.toString() ? `?${nestSearch.toString()}` : "";
-  const nest = await tryNest(`/v1/${joined}${nestQuery}`, session, scopedCustomerId, request);
+  const nestPath =
+    joined === "health" || joined === "platform/health"
+      ? "/v1/health/details"
+      : `/v1/${joined}${nestQuery}`;
+  const nest = await tryNest(nestPath, session, scopedCustomerId, request);
   if (
     nest &&
     (joined === "health" ||
@@ -130,6 +135,10 @@ export async function GET(
   ) {
     const data = await nest.json();
     return NextResponse.json({ ...data, source: "nest" });
+  }
+
+  if (localSorForbidden()) {
+    return NextResponse.json(backendRequiredResponse(), { status: 503 });
   }
 
   const platform = loadPlatform();
@@ -201,6 +210,12 @@ export async function GET(
 
   if (joined === "quotes") {
     const customerId = partnerListCustomerId(url, session, scopedCustomerId);
+    if (!customerId && !sessionHasPermission(session, "platform.admin")) {
+      return NextResponse.json(
+        { error: "Specify customerId to list quotes.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
     let quotes = platform.quotes;
     if (customerId) quotes = quotes.filter((q) => q.customerId === customerId);
     return NextResponse.json({ quotes, source: "local" });
@@ -208,6 +223,12 @@ export async function GET(
 
   if (joined === "invoices") {
     const customerId = partnerListCustomerId(url, session, scopedCustomerId);
+    if (!customerId && !sessionHasPermission(session, "platform.admin")) {
+      return NextResponse.json(
+        { error: "Specify customerId to list invoices.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
     let invoices = platform.invoices || [];
     if (customerId) invoices = invoices.filter((inv) => inv.customerId === customerId);
     return NextResponse.json({ invoices, source: "local" });
@@ -215,6 +236,12 @@ export async function GET(
 
   if (joined === "orders") {
     const customerId = partnerListCustomerId(url, session, scopedCustomerId);
+    if (!customerId && !sessionHasPermission(session, "platform.admin")) {
+      return NextResponse.json(
+        { error: "Specify customerId to list orders.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
     let orders = platform.orders || [];
     if (customerId) orders = orders.filter((o) => o.customerId === customerId);
     return NextResponse.json({ orders, source: "local" });
@@ -235,6 +262,12 @@ export async function GET(
     }> = [];
     const { listTenantSubscriptions } = await import("@/lib/subscription-store");
     const filterId = partnerListCustomerId(url, session, scopedCustomerId);
+    if (!filterId && !sessionHasPermission(session, "platform.admin")) {
+      return NextResponse.json(
+        { error: "Specify customerId to list subscriptions.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
+    }
     const scopedCustomers = filterId ? customers.filter((c) => c.id === filterId) : customers;
     for (const c of scopedCustomers) {
       for (const s of listTenantSubscriptions(c.id)) {
@@ -355,8 +388,11 @@ export async function GET(
     if (session.role !== "partner_admin") {
       customerId = session.customerId;
     }
-    if (!customerId && session.role !== "partner_admin") {
-      return NextResponse.json({ error: "Forbidden", code: "TENANT_ISOLATION" }, { status: 403 });
+    if (!customerId && session.role === "partner_admin" && !sessionHasPermission(session, "platform.admin")) {
+      return NextResponse.json(
+        { error: "Specify customerId to read tenant audit events.", code: "CUSTOMER_REQUIRED" },
+        { status: 400 }
+      );
     }
     return NextResponse.json({
       events: listAudit({ customerId, limit: 100 }),
@@ -534,6 +570,9 @@ export async function GET(
         if (inspect) {
           return !n.customerId || n.customerId === inspect.customerId;
         }
+        if (!sessionHasPermission(session, "platform.admin")) {
+          return Boolean(n.userId && n.userId === userId);
+        }
         return true;
       }
       if (session.role === "customer_admin") {
@@ -635,6 +674,17 @@ export async function POST(
   }
 
   const body = await request.json().catch(() => ({}));
+  if (localSorForbidden() && joined !== "admin-access" && joined !== "admin-access/end") {
+    const nestWrite = await tryNest(`/v1/${joined}`, access.session, access.customerId, request, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (nestWrite) {
+      return NextResponse.json({ ...(await nestWrite.json()), source: "nest" });
+    }
+    return NextResponse.json(backendRequiredResponse(), { status: 503 });
+  }
   const platform = loadPlatform();
 
   if (joined === "admin-access") {
@@ -677,14 +727,7 @@ export async function POST(
       source: "local",
     });
     await applySessionCookie(res, {
-      accountId: auth.session.accountId,
-      name: auth.session.name,
-      email: auth.session.email,
-      role: auth.session.role,
-      customerId: auth.session.customerId,
-      customerName: auth.session.customerName,
-      team: auth.session.team,
-      title: auth.session.title,
+      ...cookieFields(auth.session),
       inspect: {
         customerId,
         customerName: customer?.name,
@@ -710,16 +753,7 @@ export async function POST(
       saveFoundation(data);
     }
     const res = NextResponse.json({ ok: true, source: "local" });
-    await applySessionCookie(res, {
-      accountId: auth.session.accountId,
-      name: auth.session.name,
-      email: auth.session.email,
-      role: auth.session.role,
-      customerId: auth.session.customerId,
-      customerName: auth.session.customerName,
-      team: auth.session.team,
-      title: auth.session.title,
-    });
+    await applySessionCookie(res, cookieFields({ ...auth.session, inspect: undefined }));
     return res;
   }
 
@@ -1031,16 +1065,7 @@ export async function POST(
     const auth = await requirePartnerAdmin(request);
     if ("error" in auth) return auth.error;
     const res = NextResponse.json({ ok: true, source: "local" });
-    await applySessionCookie(res, {
-      accountId: auth.session.accountId,
-      name: auth.session.name,
-      email: auth.session.email,
-      role: auth.session.role,
-      customerId: auth.session.customerId,
-      customerName: auth.session.customerName,
-      team: auth.session.team,
-      title: auth.session.title,
-    });
+    await applySessionCookie(res, cookieFields({ ...auth.session, inspect: undefined }));
     return res;
   }
 
@@ -1065,6 +1090,12 @@ export async function PATCH(
     method: "PATCH",
     body: JSON.stringify(body),
   });
+  if (localSorForbidden()) {
+    if (nestPatch) {
+      return NextResponse.json({ ...(await nestPatch.json()), source: "nest" });
+    }
+    return NextResponse.json(backendRequiredResponse(), { status: 503 });
+  }
   if (nestPatch && (joined.startsWith("onboarding/") || joined.startsWith("notifications/"))) {
     const data = await nestPatch.json();
     /* still apply local dual-write below */

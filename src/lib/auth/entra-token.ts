@@ -24,8 +24,6 @@ function jwksForTenant(tenantId: string) {
 
 function acceptedAudiences(): string[] {
   return [
-    "https://graph.microsoft.com",
-    "00000003-0000-0000-c000-000000000000",
     process.env.AZURE_AD_API_AUDIENCE || "",
     process.env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID || "",
   ].filter((v) => v && v !== "00000000-0000-0000-0000-000000000000");

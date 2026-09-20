@@ -80,6 +80,27 @@ export function listThreads(filter?: {
   );
 }
 
+/** Queue cards omit message bodies and client email (opened thread still has full payload). */
+export function threadQueueCard(t: SupportThread) {
+  const last = t.messages[t.messages.length - 1];
+  return {
+    id: t.id,
+    customerId: t.customerId,
+    customerName: t.customerName,
+    clientUserId: t.clientUserId,
+    clientUserName: t.clientUserName,
+    team: t.team,
+    subject: t.subject,
+    status: t.status,
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    messageCount: t.messages.length,
+    lastMessageAt: last?.createdAt,
+    lastPreview: last?.text ? last.text.slice(0, 80) : undefined,
+    unreadClientCount: t.messages.filter((m) => m.sender === "client" && !m.readByAgent).length,
+  };
+}
+
 export function getThread(id: string): SupportThread | undefined {
   return ensureStore().find((t) => t.id === id);
 }

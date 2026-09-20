@@ -5,7 +5,7 @@ import { listDirectoryUsers, replaceDirectoryUsers } from "@/lib/directory-store
 import { findCustomer } from "@/lib/customer-store";
 import { cspApiBase, cspInternalHeaders } from "@/lib/csp-api";
 import { SESSION_COOKIE, LEGACY_SESSION_COOKIE } from "@/lib/auth/server-session";
-import { syncUsersFromGraph } from "@/lib/graph";
+import { localSorForbidden, backendRequiredResponse } from "@/lib/auth/runtime";
 
 /**
  * Directory sync is tenant-scoped.
@@ -72,40 +72,11 @@ export async function POST(request: NextRequest) {
       );
     }
   } catch {
-    /* Nest down — try process-local Graph credentials */
+    /* Nest unreachable */
   }
 
-  const graphToken = process.env.GRAPH_ACCESS_TOKEN || "";
-  if (graphToken) {
-    try {
-      const users = await syncUsersFromGraph(graphToken);
-      replaceDirectoryUsers(scope.customerId, users);
-      writeAudit({
-        action: "users.sync",
-        actorAccountId: scope.session.accountId,
-        actorEmail: scope.session.email,
-        actorRole: scope.session.role,
-        customerId: scope.customerId,
-        detail: `Graph directory sync via GRAPH_ACCESS_TOKEN (${users.length} users)`,
-        result: "ok",
-      });
-      return NextResponse.json({
-        users,
-        count: users.length,
-        source: "graph",
-        customerId: scope.customerId,
-        syncedAt: new Date().toISOString(),
-      });
-    } catch (err) {
-      return NextResponse.json(
-        {
-          error: err instanceof Error ? err.message : "Graph sync failed",
-          code: "GRAPH_SYNC_FAILED",
-          customerId: scope.customerId,
-        },
-        { status: 502 }
-      );
-    }
+  if (localSorForbidden()) {
+    return NextResponse.json(backendRequiredResponse(), { status: 503 });
   }
 
   return NextResponse.json(

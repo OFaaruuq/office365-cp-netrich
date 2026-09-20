@@ -14,7 +14,7 @@ Multi-tenant CSP control panel for **netrichtechnologies**.
 
 | Document | Description |
 |----------|-------------|
-| **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** | Production deploy (Docker / Node) |
+| **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** | **Production deploy (native Windows/Linux — no Docker)** |
 | **[docs/DOCUMENTATION.md](./docs/DOCUMENTATION.md)** | Full system doc — modules, APIs, stores, security |
 | **[docs/CSP_PRODUCTION_ARCHITECTURE.md](./docs/CSP_PRODUCTION_ARCHITECTURE.md)** | CSP target architecture (SAM, GDAP, NCE, stages) |
 | **[docs/MULTI_TENANT.md](./docs/MULTI_TENANT.md)** | Isolation policy, terminate lifecycle, try-it |
@@ -61,15 +61,29 @@ Open [http://localhost:3000](http://localhost:3000).
 | `/admin/security/audit` | Audit logs |
 | `/admin/platform/flags` | Feature flags |
 
-## Quick start — NestJS + PostgreSQL
+## Production (native — no Docker)
 
-Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+Full runbook: **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)**.
+
+Production runs **Next.js + NestJS + PostgreSQL 16 + Redis as OS processes** behind IIS or Nginx. Containers are not used.
+
+```powershell
+copy .env.production.example .env.production
+copy backend\.env.production.example backend\.env
+npm run deploy:secret   # paste into both env files (session + internal secret)
+npm run deploy:check
+npm run deploy:build
+# Then register Windows services (NSSM) or Linux systemd — see the runbook.
+```
+
+## Quick start — NestJS + PostgreSQL (local development)
+
+Install PostgreSQL 16 and Redis 7 (or Memurai on Windows) on the machine. Production never uses Docker for these services.
 
 ```bash
 cd backend
 cp .env.example .env
 npm install
-npm run docker:up
 npx prisma migrate deploy
 # optional RLS policies: psql "$DATABASE_URL" -f prisma/rls-policies.sql
 npm run prisma:seed
@@ -79,7 +93,7 @@ npm run dev:api             # http://localhost:8080/health
 npm run dev:worker
 ```
 
-Without Docker, the UI still runs; `/api/csp/*` uses the local foundation store.
+If Nest is down in **development**, `/api/csp/*` can fall back to `.data`. In **production** that fallback is disabled (`503 BACKEND_REQUIRED`).
 
 ## Environment
 
@@ -87,10 +101,11 @@ Root [`.env.example`](./.env.example) and [backend/.env.example](./backend/.env.
 
 ```env
 NEXT_PUBLIC_APP_URL=http://localhost:3000
-NEXT_PUBLIC_CSP_API_URL=http://localhost:8080
 NEXT_PUBLIC_AZURE_AD_CLIENT_ID=
 NEXT_PUBLIC_AZURE_AD_AUTHORITY=https://login.microsoftonline.com/common
+CSP_API_URL=http://127.0.0.1:8080
 # PORTAL_SESSION_SECRET=     # required in production (≥32 chars)
+# Production: do not set NEXT_PUBLIC_CSP_API_URL (Nest stays off the browser bundle).
 ```
 
 ## Scripts (UI package)
@@ -102,8 +117,8 @@ NEXT_PUBLIC_AZURE_AD_AUTHORITY=https://login.microsoftonline.com/common
 | `npm start` | Run production UI |
 | `npm run lint` | ESLint |
 | `npm run deploy:check` | Validate `.env.production` |
-| `npm run deploy:docker` | Production Docker deploy (UI) |
-| `npm run deploy:prod` | Check + Docker production deploy |
+| `npm run deploy:build` | Install + production Next.js build |
+| `npm run deploy:start` | Build + `next start` (foreground smoke) |
 
 ## Brand
 

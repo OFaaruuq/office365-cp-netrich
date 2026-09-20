@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, Req, UnauthorizedException, ConflictException } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Param, Post, Query, Req, UnauthorizedException, ConflictException, NotFoundException } from "@nestjs/common";
 import { createHmac, timingSafeEqual } from "crypto";
 import type { RawBodyRequest } from "@nestjs/common";
 import type { Request } from "express";
@@ -23,7 +23,7 @@ export class WebhooksController {
   @Get(":provider")
   challenge(@Query("validationToken") validationToken?: string) {
     if (validationToken) return validationToken;
-    return { ok: true, source: "nest" };
+    throw new NotFoundException();
   }
 
   @Post(":provider")
@@ -45,8 +45,9 @@ export class WebhooksController {
     const digest = createHmac("sha256", secret).update(raw).digest("hex");
     const provided = signature || hubSignature || "";
     const clientState = String(body?.clientState || "");
+    const hmacOk = signaturesMatch(provided, digest);
     const clientStateOk = Boolean(process.env.WEBHOOK_CLIENT_STATE) && clientState === process.env.WEBHOOK_CLIENT_STATE;
-    if (!clientStateOk && !signaturesMatch(provided, digest)) {
+    if (!hmacOk || (process.env.WEBHOOK_CLIENT_STATE && !clientStateOk)) {
       throw new UnauthorizedException({ code: "WEBHOOK_SIGNATURE_INVALID" });
     }
     const result = await enqueueJob({

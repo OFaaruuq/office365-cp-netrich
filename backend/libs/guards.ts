@@ -1,7 +1,7 @@
 /**
  * NestJS auth + tenant context + RBAC.
  * Internal calls must present x-csp-internal-secret (set by Next after session auth).
- * Direct callers may present a validated Entra access token.
+ * Direct Entra bearers are not accepted — Next.js is the only identity plane.
  * Role headers are never trusted from the public internet.
  */
 import {
@@ -19,7 +19,8 @@ import type { Request } from "express";
 import type { PermissionKey } from "./rbac";
 import { ROLE_PACKS, LEGACY_ROLE_MAP } from "./rbac";
 import { withTenantContext } from "./prisma";
-import { validateEntraAccessToken, type EntraClaims } from "./entra";
+import { type EntraClaims } from "./entra";
+import { DEV_INTERNAL_SECRET, isProductionRuntime } from "./runtime";
 import { decodePortalSessionToken } from "./portal-session";
 
 export const IS_PUBLIC_KEY = "is_public";
@@ -77,9 +78,9 @@ function header(req: Request, name: string): string {
 
 function expectedInternalSecret(): string {
   const configured = process.env.CSP_INTERNAL_API_SECRET || "";
-  if (configured.length >= 16) return configured;
-  if (process.env.NODE_ENV === "production") return "";
-  return "netrich-csp-dev-internal-secret";
+  if (configured.length >= 16 && configured !== DEV_INTERNAL_SECRET) return configured;
+  if (isProductionRuntime()) return "";
+  return DEV_INTERNAL_SECRET;
 }
 
 function secretsEqual(provided: string, expected: string): boolean {
@@ -112,17 +113,6 @@ export class InternalAuthGuard implements CanActivate {
     if (secretsEqual(provided, expected)) {
       req.authSource = "internal";
       return true;
-    }
-
-    const authorization = header(req, "authorization");
-    const bearer = authorization.replace(/^Bearer\s+/i, "");
-    if (bearer) {
-      const claims = await validateEntraAccessToken(bearer);
-      if (claims?.oid) {
-        req.authSource = "entra";
-        req.entraClaims = claims;
-        return true;
-      }
     }
 
     throw new UnauthorizedException({

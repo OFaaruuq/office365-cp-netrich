@@ -92,9 +92,7 @@ export async function POST(request: NextRequest) {
       ok: false,
       step: "enroll",
       challengeId,
-      otpauthUrl: setup.otpauthUrl,
       qrDataUrl,
-      secret: setup.secret,
       message: "Scan the new QR code with Google Authenticator.",
     });
   }

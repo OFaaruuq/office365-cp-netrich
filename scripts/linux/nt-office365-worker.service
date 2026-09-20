@@ -1,0 +1,16 @@
+[Unit]
+Description=netrichtechnologies CSP worker
+After=nt-office365-api.service redis-server.service
+
+[Service]
+Type=simple
+User=netrich
+WorkingDirectory=/opt/netrich/office365/backend
+EnvironmentFile=/opt/netrich/office365/backend/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npx tsx apps/worker/src/main.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

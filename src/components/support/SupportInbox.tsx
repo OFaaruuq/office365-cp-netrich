@@ -72,9 +72,12 @@ export default function SupportInbox() {
               <div className="p-6 text-center text-sm text-nt-text-muted">No threads yet.</div>
             )}
             {threads.map((t) => {
-              const unread = t.messages.filter((m) => m.sender === "client" && !m.readByAgent)
-                .length;
-              const last = t.messages[t.messages.length - 1];
+              const unread =
+                t.messages?.length
+                  ? t.messages.filter((m) => m.sender === "client" && !m.readByAgent).length
+                  : Number((t as { unreadClientCount?: number }).unreadClientCount || 0);
+              const last = t.messages?.[t.messages.length - 1];
+              const preview = last?.text || (t as { lastPreview?: string }).lastPreview;
               return (
                 <button
                   key={t.id}
@@ -101,7 +104,7 @@ export default function SupportInbox() {
                   <div className="mt-0.5 text-xs text-nt-text-muted">
                     {t.clientUserName} · {t.team}
                   </div>
-                  <div className="mt-1 truncate text-xs text-nt-text-subtle">{last?.text}</div>
+                  <div className="mt-1 truncate text-xs text-nt-text-subtle">{preview}</div>
                   {unread > 0 && (
                     <div className="mt-1 text-[11px] font-semibold text-nt-danger">
                       {unread} unread

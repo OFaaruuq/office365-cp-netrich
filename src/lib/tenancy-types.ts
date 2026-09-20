@@ -86,6 +86,8 @@ export interface SessionUser {
   customerName?: string;
   team?: SupportTeam;
   title: string;
+  rolePack?: string;
+  permissions?: string[];
   /** Partner view-as-customer — server-bound, not sessionStorage */
   inspect?: {
     customerId: string;

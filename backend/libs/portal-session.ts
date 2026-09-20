@@ -14,7 +14,7 @@ export type PortalSessionClaims = {
 
 function secret(): string {
   const configured = process.env.PORTAL_SESSION_SECRET || process.env.SESSION_SECRET || "";
-  if (configured.length >= 32) return configured;
+  if (configured.length >= 32 && configured !== "netrich-office365-dev-session-secret-change-me") return configured;
   if (process.env.NODE_ENV === "production") return "";
   return "netrich-office365-dev-session-secret-change-me";
 }

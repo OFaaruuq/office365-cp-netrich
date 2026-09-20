@@ -1,0 +1,16 @@
+[Unit]
+Description=netrichtechnologies Microsoft 365 Control Panel UI
+After=nt-office365-api.service
+
+[Service]
+Type=simple
+User=netrich
+WorkingDirectory=/opt/netrich/office365
+EnvironmentFile=/opt/netrich/office365/.env.production
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npx next start -p 3000 -H 127.0.0.1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

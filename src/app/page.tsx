@@ -412,11 +412,6 @@ export default function SignInPage() {
                     <p className="text-center text-[11px] text-[#8a8a8a]">
                       Scan with Google Authenticator, Microsoft Authenticator, or any TOTP app.
                     </p>
-                    {mfa.secret && (
-                      <p className="break-all text-center font-mono text-[11px] text-[#605e5c]">
-                        Manual key: {mfa.secret}
-                      </p>
-                    )}
                   </div>
                 )}
 

@@ -274,9 +274,7 @@ export async function POST(request: NextRequest) {
     mfaRequired: true,
     step: "enroll",
     challengeId,
-    otpauthUrl: setup.otpauthUrl,
     qrDataUrl,
-    secret: setup.secret,
     message:
       "MFA is required for all users. Scan the QR code with Google Authenticator, then enter the 6-digit code to finish sign-in.",
   });
@@ -295,5 +293,5 @@ export async function DELETE(request: NextRequest) {
     });
   }
   const res = NextResponse.json({ ok: true });
-  return clearSessionCookie(res);
+  return clearSessionCookie(res, session?.sid);
 }
